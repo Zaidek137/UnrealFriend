@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "unreal-agent": {
+      "type": "stdio",
+      "command": "python3",
+      "args": [
+        "${workspaceFolder}/tools/cursor_unreal_mcp.py"
+      ],
+      "env": {
+        "UNREAL_AGENT_WEB_BASE": "http://127.0.0.1:8787",
+        "UNREAL_AGENT_AUTO_APPROVE": "true",
+        "UNREAL_AGENT_WEB_AUTOSTART": "true",
+        "UNREAL_AGENT_WEB_SERVER_PATH": "${workspaceFolder}/apps/unreal-agent-web/server.py"
+      }
+    }
+  }
+}

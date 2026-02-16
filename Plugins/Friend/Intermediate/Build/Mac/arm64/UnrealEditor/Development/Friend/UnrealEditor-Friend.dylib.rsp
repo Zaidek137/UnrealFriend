@@ -1,0 +1,34 @@
+-fdiagnostics-absolute-paths
+-fdiagnostics-color
+-L/usr/lib/swift
+-arch arm64
+-isysroot "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+-target arm64-apple-macos14.00
+-dead_strip
+-dynamiclib
+-headerpad_max_install_names
+-current_version 4753.73.91
+-compatibility_version 5.7.0
+-rpath @loader_path/ -rpath @executable_path/
+"/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/PrivateFrameworks/MultitouchSupport.framework/Versions/Current/MultitouchSupport.tbd"
+"../Binaries/Mac/UnrealEditor-CoreUObject.dylib"
+-rpath "@loader_path/../../../../../../../Shared/Epic Games/UE_5.7/Engine/Binaries/Mac"
+"../Binaries/Mac/UnrealEditor-Engine.dylib"
+"../Binaries/Mac/UnrealEditor-Slate.dylib"
+"../Binaries/Mac/UnrealEditor-SlateCore.dylib"
+"../Binaries/Mac/UnrealEditor-Core.dylib"
+-framework "AVFoundation"
+-framework "CoreVideo"
+-framework "CoreMedia"
+-framework "Cocoa"
+-framework "Carbon"
+-framework "IOKit"
+-framework "Security"
+-framework "UniformTypeIdentifiers"
+-framework "Network"
+-framework "ScreenCaptureKit"
+-framework "SystemConfiguration"
+-install_name "@rpath/UnrealEditor-Friend.dylib"
+"/Users/ericdiaz/Desktop/Unreal Friend/Plugins/Friend/Intermediate/Build/Mac/arm64/UnrealEditor/Development/Friend/Module.Friend.cpp.o"
+"/Users/ericdiaz/Desktop/Unreal Friend/Plugins/Friend/Intermediate/Build/Mac/arm64/UnrealEditor/Development/Friend/Friend.cpp.o"
+-o "/Users/ericdiaz/Desktop/Unreal Friend/Plugins/Friend/Binaries/Mac/UnrealEditor-Friend.dylib"

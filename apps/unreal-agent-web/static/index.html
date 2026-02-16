@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Unreal Agent Chat</title>
+    <style>
+      :root {
+        --bg: #0f151d;
+        --panel: #172231;
+        --panel-2: #101923;
+        --text: #e9f1fa;
+        --muted: #9fb2c6;
+        --accent: #37a7ff;
+        --ok: #30c18d;
+        --err: #ff6d6d;
+        --border: #2a3a4f;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 5% 5%, #24344d 0%, transparent 30%),
+          radial-gradient(circle at 90% 10%, #1f3c35 0%, transparent 35%),
+          var(--bg);
+      }
+      .wrap { max-width: 1200px; margin: 24px auto; padding: 0 14px; }
+      h1 { margin: 0 0 6px; font-size: 28px; }
+      .sub { color: var(--muted); margin-bottom: 14px; }
+      .grid { display: grid; grid-template-columns: 340px 1fr; gap: 14px; }
+      .panel {
+        background: linear-gradient(180deg, var(--panel), var(--panel-2));
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 12px;
+      }
+      .panel h2 { margin: 0 0 10px; font-size: 14px; letter-spacing: 0.3px; }
+      .stack { display: grid; gap: 10px; }
+      label {
+        display: grid;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      input, textarea, select, button {
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: #0d141d;
+        color: var(--text);
+        font-size: 14px;
+        padding: 10px 12px;
+      }
+      textarea { resize: vertical; min-height: 90px; font-family: "IBM Plex Mono", ui-monospace, monospace; }
+      button { cursor: pointer; background: #1a2a3b; }
+      button.primary { background: linear-gradient(90deg, #1266ad, #2b9de0); border-color: #2b9de0; }
+      button.good { background: linear-gradient(90deg, #1a6b4f, #2caa7c); border-color: #2caa7c; }
+      button.warn { background: linear-gradient(90deg, #7f3737, #b74e4e); border-color: #b74e4e; }
+      .btns { display: flex; flex-wrap: wrap; gap: 8px; }
+      .status { color: var(--muted); font-size: 12px; }
+      .status.ok { color: var(--ok); }
+      .status.err { color: var(--err); }
+      .chat {
+        border: 1px solid var(--border);
+        background: #0b1016;
+        border-radius: 12px;
+        padding: 10px;
+        min-height: 430px;
+        max-height: 70vh;
+        overflow: auto;
+        display: grid;
+        gap: 10px;
+      }
+      .msg {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .msg.user { background: #102031; }
+      .msg.agent { background: #122118; }
+      .msg.system { background: #231915; }
+      .raw {
+        margin-top: 8px;
+        font-size: 12px;
+        border: 1px solid var(--border);
+        background: #0a0e14;
+        padding: 8px;
+        border-radius: 8px;
+        white-space: pre-wrap;
+      }
+      .composer { display: grid; gap: 8px; margin-top: 10px; }
+      .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .hidden { display: none; }
+      @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Unreal Agent Chat</h1>
+      <div class="sub">Natural language only. No terminal commands required for normal operation.</div>
+
+      <div class="grid">
+        <div class="stack">
+          <section class="panel">
+            <h2>Connection</h2>
+            <div class="stack">
+              <label>Unreal Base URL <input id="unrealBase" placeholder="http://127.0.0.1:47777/unreal-agent/v1" /></label>
+              <div class="btns">
+                <button id="saveSettings" class="good">Save</button>
+                <button id="healthCheck">Health</button>
+                <button id="loadInfo">Info</button>
+                <button id="loadState">State</button>
+              </div>
+              <div id="connectionStatus" class="status">Idle</div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Automation</h2>
+            <div class="stack">
+              <label>Use LLM Planner
+                <select id="llmEnabled">
+                  <option value="false">Disabled (No API key)</option>
+                  <option value="true">Enabled</option>
+                </select>
+              </label>
+              <label>LLM Base URL <input id="llmBase" placeholder="https://api.openai.com/v1" /></label>
+              <label>LLM Model <input id="llmModel" placeholder="gpt-4.1-mini" /></label>
+              <label>LLM API Key <input id="llmApiKey" placeholder="sk-..." /></label>
+              <label>Require Approval for Mutations
+                <select id="requireApproval">
+                  <option value="false">false</option>
+                  <option value="true">true</option>
+                </select>
+              </label>
+              <label>Show Advanced Context JSON
+                <select id="showAdvanced">
+                  <option value="false">false</option>
+                  <option value="true">true</option>
+                </select>
+              </label>
+            </div>
+          </section>
+        </div>
+
+        <section class="panel">
+          <h2>Chat</h2>
+          <div id="chatLog" class="chat"></div>
+          <div class="composer">
+            <textarea id="chatInput" placeholder="Example: Create BP_EnemyScout in /Game/AI/Blueprints, add a bool bAggroEnabled default true, then print \"Enemy ready\" on BeginPlay."></textarea>
+            <div id="advancedBox" class="hidden">
+              <label>Optional Context JSON
+                <textarea id="goalContext">{}</textarea>
+              </label>
+            </div>
+            <div class="row-2">
+              <label>Dry Run
+                <select id="dryRun">
+                  <option value="false">false</option>
+                  <option value="true">true</option>
+                </select>
+              </label>
+              <label>Stop on Error
+                <select id="stopOnError">
+                  <option value="true">true</option>
+                  <option value="false">false</option>
+                </select>
+              </label>
+            </div>
+            <div class="btns">
+              <button id="sendChat" class="primary">Send</button>
+              <button id="clearChat">Clear Chat</button>
+              <button id="approveAndRetry" class="warn hidden">Approve & Retry</button>
+            </div>
+            <div id="runStatus" class="status">Ready</div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <script>
+      const connectionStatus = document.getElementById("connectionStatus");
+      const runStatus = document.getElementById("runStatus");
+      const chatLog = document.getElementById("chatLog");
+      const approveAndRetryBtn = document.getElementById("approveAndRetry");
+      let lastPendingRequest = null;
+
+      function setStatus(el, text, cls = "") {
+        el.className = `status ${cls}`.trim();
+        el.textContent = text;
+      }
+
+      async function api(path, method = "GET", body = null) {
+        const options = { method, headers: { "Content-Type": "application/json" } };
+        if (body !== null) options.body = JSON.stringify(body);
+        const res = await fetch(path, options);
+        let json;
+        try {
+          json = await res.json();
+        } catch {
+          json = { success: false, message: "Invalid JSON response." };
+        }
+        return { status: res.status, data: json };
+      }
+
+      function parseContext() {
+        const raw = document.getElementById("goalContext").value.trim();
+        if (!raw) return {};
+        return JSON.parse(raw);
+      }
+
+      function addMessage(kind, text, raw = null) {
+        const div = document.createElement("div");
+        div.className = `msg ${kind}`;
+        div.textContent = text;
+
+        if (raw !== null) {
+          const rawDiv = document.createElement("div");
+          rawDiv.className = "raw";
+          rawDiv.textContent = JSON.stringify(raw, null, 2);
+          div.appendChild(rawDiv);
+        }
+
+        chatLog.appendChild(div);
+        chatLog.scrollTop = chatLog.scrollHeight;
+      }
+
+      async function loadSettings() {
+        const res = await api("/api/settings");
+        if (!res.data.success) throw new Error(res.data.message || "Failed to load settings");
+        const s = res.data.settings;
+        document.getElementById("unrealBase").value = s.unreal_base_url || "";
+        document.getElementById("llmEnabled").value = String(!!s.llm_enabled);
+        document.getElementById("llmBase").value = s.llm_base_url || "";
+        document.getElementById("llmModel").value = s.llm_model || "";
+        document.getElementById("requireApproval").value = String(!!s.require_approval_for_mutations);
+      }
+
+      async function saveSettings() {
+        const payload = {
+          unreal_base_url: document.getElementById("unrealBase").value.trim(),
+          llm_enabled: document.getElementById("llmEnabled").value === "true",
+          llm_base_url: document.getElementById("llmBase").value.trim(),
+          llm_model: document.getElementById("llmModel").value.trim(),
+          require_approval_for_mutations: document.getElementById("requireApproval").value === "true",
+        };
+        const key = document.getElementById("llmApiKey").value.trim();
+        if (key && key !== "********") payload.llm_api_key = key;
+
+        const res = await api("/api/settings", "POST", payload);
+        if (res.data.success) {
+          setStatus(connectionStatus, "Settings saved", "ok");
+          addMessage("system", "Settings updated.", res.data.settings || res.data);
+        } else {
+          setStatus(connectionStatus, res.data.message || "Save failed", "err");
+          addMessage("system", "Failed to save settings.", res.data);
+        }
+      }
+
+      async function healthCheck() {
+        setStatus(connectionStatus, "Checking...");
+        const res = await api("/api/health");
+        if (res.data.success) setStatus(connectionStatus, "Connected", "ok");
+        else setStatus(connectionStatus, "Connection failed", "err");
+        addMessage("system", "Health check result.", res.data);
+      }
+
+      async function loadInfo() {
+        const res = await api("/api/info");
+        addMessage("system", "Engine/plugin info.", res.data);
+      }
+
+      async function loadState() {
+        const res = await api("/api/state");
+        addMessage("system", "Editor state snapshot.", res.data);
+      }
+
+      async function sendChat(withApprovalToken = "") {
+        try {
+          const message = document.getElementById("chatInput").value.trim();
+          if (!message) throw new Error("Message is required.");
+
+          addMessage("user", message);
+          setStatus(runStatus, "Running...");
+
+          const payload = {
+            message,
+            dry_run: document.getElementById("dryRun").value === "true",
+            stop_on_error: document.getElementById("stopOnError").value === "true",
+            goal_context: parseContext(),
+            approval_token: withApprovalToken,
+          };
+
+          const res = await api("/api/chat", "POST", payload);
+
+          if (res.data.error_code === "APPROVAL_REQUIRED" && res.data.approval_token) {
+            lastPendingRequest = payload;
+            lastPendingRequest.approval_token = res.data.approval_token;
+            approveAndRetryBtn.classList.remove("hidden");
+            setStatus(runStatus, "Approval required", "err");
+            addMessage("system", "Approval required before mutating operations. Click 'Approve & Retry'.", res.data);
+            return;
+          }
+
+          approveAndRetryBtn.classList.add("hidden");
+          if (res.data.success) {
+            setStatus(runStatus, "Done", "ok");
+            addMessage("agent", "Completed.", res.data);
+          } else {
+            setStatus(runStatus, res.data.message || "Failed", "err");
+            addMessage("agent", res.data.message || "Request failed.", res.data);
+          }
+        } catch (err) {
+          setStatus(runStatus, err.message || String(err), "err");
+          addMessage("system", `Error: ${err.message || String(err)}`);
+        }
+      }
+
+      async function approveAndRetry() {
+        if (!lastPendingRequest || !lastPendingRequest.approval_token) {
+          addMessage("system", "No pending approval token to use.");
+          return;
+        }
+
+        const approveRes = await api("/api/approve", "POST", { approval_token: lastPendingRequest.approval_token });
+        if (!approveRes.data.success) {
+          setStatus(runStatus, "Approval failed", "err");
+          addMessage("system", "Approval failed.", approveRes.data);
+          return;
+        }
+
+        addMessage("system", "Approval granted. Retrying...");
+        setStatus(runStatus, "Retrying...");
+        await sendChat(lastPendingRequest.approval_token);
+      }
+
+      document.getElementById("saveSettings").addEventListener("click", saveSettings);
+      document.getElementById("healthCheck").addEventListener("click", healthCheck);
+      document.getElementById("loadInfo").addEventListener("click", loadInfo);
+      document.getElementById("loadState").addEventListener("click", loadState);
+      document.getElementById("sendChat").addEventListener("click", () => sendChat());
+      document.getElementById("approveAndRetry").addEventListener("click", approveAndRetry);
+      document.getElementById("clearChat").addEventListener("click", () => {
+        chatLog.innerHTML = "";
+        setStatus(runStatus, "Ready");
+      });
+
+      document.getElementById("showAdvanced").addEventListener("change", (e) => {
+        const show = e.target.value === "true";
+        document.getElementById("advancedBox").classList.toggle("hidden", !show);
+      });
+
+      document.getElementById("chatInput").addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          sendChat();
+        }
+      });
+
+      (async () => {
+        try {
+          await loadSettings();
+          setStatus(connectionStatus, "Settings loaded", "ok");
+          addMessage("system", "Ready. Type a natural-language request and press Send.");
+        } catch (err) {
+          setStatus(connectionStatus, err.message || String(err), "err");
+          addMessage("system", `Startup error: ${err.message || String(err)}`);
+        }
+      })();
+    </script>
+  </body>
+</html>

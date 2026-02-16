@@ -1,0 +1,24 @@
+{
+  "items": {
+    "apr_d5c71737aaff4d6d808f3d9fe5410434": {
+      "token": "apr_d5c71737aaff4d6d808f3d9fe5410434",
+      "kind": "direct-execute",
+      "summary": "direct-execute requires approval for actions: create_blueprint",
+      "risky_actions": [
+        "create_blueprint"
+      ],
+      "request_payload": {
+        "action": "create_blueprint",
+        "payload": {
+          "asset_name": "BP_Test",
+          "package_path": "/Game/Test"
+        },
+        "dry_run": false
+      },
+      "status": "USED",
+      "created_at": 1771141754.301423,
+      "approved_at": 1771141754.302467,
+      "used_at": 1771141754.304258
+    }
+  }
+}

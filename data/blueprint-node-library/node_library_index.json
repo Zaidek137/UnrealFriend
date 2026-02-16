@@ -1,0 +1,355 @@
+{
+  "source": "/Users/ericdiaz/Desktop/Unreal Friend/data/blueprint-node-library/NodeDump.txt",
+  "node_types": [
+    {
+      "name": "K2Node_CustomEvent",
+      "class": "/Script/BlueprintGraph.K2Node_CustomEvent",
+      "description": "Custom event entry point. Used for RPCs and user-defined events.",
+      "properties": "CustomFunctionName=\"<name>\", FunctionFlags=<int> (218235072=Client+Reliable RPC), NodeGuid=<32hex>",
+      "pins": "OutputDelegate(out,delegate) | then(out,exec) | [custom params]",
+      "notes": [
+        "FunctionFlags determines RPC type. OutputDelegate MemberGuid matches NodeGuid. No FunctionFlags = plain event."
+      ]
+    },
+    {
+      "name": "K2Node_Event",
+      "class": "/Script/BlueprintGraph.K2Node_Event",
+      "description": "Engine event override (BeginPlay, Tick, PostLogin, etc.)",
+      "properties": "EventReference=(MemberParent=\"<class>\",MemberName=\"<event>\"), bOverrideFunction=True, bInternalEvent=True",
+      "pins": "OutputDelegate(out,delegate,hidden) | then(out,exec)",
+      "notes": [
+        "CANNOT be pasted \u2014 must place manually via right-click menu."
+      ]
+    },
+    {
+      "name": "K2Node_CallFunction (impure)",
+      "class": "/Script/BlueprintGraph.K2Node_CallFunction",
+      "description": "Function call with execution flow.",
+      "properties": "FunctionReference=(MemberParent=\"<class>\",MemberName=\"<func>\") OR (MemberName=\"<func>\",MemberGuid=<GUID>,bSelfContext=True)",
+      "pins": "execute(in,exec) | then(out,exec) | self(in,object) | WorldContextObject(in,object,hidden) | [params] | ReturnValue(out)",
+      "notes": [
+        "Optional: AdvancedPinDisplay=Hidden, EnabledState=DevelopmentOnly",
+        "Self-context: bSelfContext=True, self pin PinSubCategory=\"self\", bHidden varies",
+        "External/library: MemberParent=class path, self hidden with DefaultObject=Default__<Library>",
+        "Common functions: AddToViewport, RemoveFromParent, SetInputMode_GameOnly, GetAllActorsOfClass, PrintString, K2_SetTimer, Delay, SetTimerByFunctionName, SpawnActor, DestroyActor"
+      ]
+    },
+    {
+      "name": "K2Node_CallFunction (pure)",
+      "class": "",
+      "description": "Same class, bDefaultsToPureFunc=True",
+      "properties": "",
+      "pins": "",
+      "notes": [
+        "No execute/then pins. Only self + params + ReturnValue.",
+        "Common functions: IsLocallyControlled, GetController, GetGameMode, GetGameState, Conv_IntToByte, GetActorLocation"
+      ]
+    },
+    {
+      "name": "K2Node_CallArrayFunction",
+      "class": "/Script/BlueprintGraph.K2Node_CallArrayFunction",
+      "description": "Array operations. MemberParent=KismetArrayLibrary.",
+      "properties": "",
+      "pins": "",
+      "notes": [
+        "Array_Clear (impure): execute, then, TargetArray(wildcard array,byref). No return.",
+        "Array_Add (impure): execute, then, TargetArray(wildcard array,byref), NewItem(wildcard,byref const), ReturnValue(int).",
+        "Array_Contains (pure): bDefaultsToPureFunc=True. TargetArray(wildcard array,byref const), ItemToFind(wildcard,byref const), ReturnValue(bool).",
+        "TargetArray PinCategory=\"wildcard\", ContainerType=Array, bIsReference=True. Wildcard resolves on connection."
+      ]
+    },
+    {
+      "name": "K2Node_IfThenElse (Branch)",
+      "class": "/Script/BlueprintGraph.K2Node_IfThenElse",
+      "description": "",
+      "properties": "",
+      "pins": "execute(in,exec) | Condition(in,bool,default=\"true\") | then(out,exec,friendly=\"true\") | else(out,exec,friendly=\"false\")",
+      "notes": []
+    },
+    {
+      "name": "K2Node_DynamicCast",
+      "class": "/Script/BlueprintGraph.K2Node_DynamicCast",
+      "description": "\"As\" pin naming: spaces inserted at capitals. e.g. \"AsBP Quarterback\", \"AsGM Game\", \"AsPlayer Controller\"",
+      "properties": "TargetType=\"<full class path>\"",
+      "pins": "execute(in,exec) | then(out,exec) | CastFailed(out,exec) | Object(in,object or wildcard) | As<ClassName>(out,object) | bSuccess(out,bool,HIDDEN)",
+      "notes": [
+        "Object pin: PinCategory=\"wildcard\" from ForEachLoop, \"object\" from typed sources."
+      ]
+    },
+    {
+      "name": "K2Node_CreateWidget",
+      "class": "/Script/UMGEditor.K2Node_CreateWidget (NOT BlueprintGraph)",
+      "description": "",
+      "properties": "",
+      "pins": "execute(in,exec) | then(out,exec) | Class(in,class,DefaultObject=widget path) | ReturnValue(out,object) | OwningPlayer(in,object=PlayerController)",
+      "notes": [
+        "OwningPlayer wired from Cast to PlayerController. ReturnValue wires to AddToViewport self and/or SET widget var."
+      ]
+    },
+    {
+      "name": "K2Node_VariableGet",
+      "class": "/Script/BlueprintGraph.K2Node_VariableGet",
+      "description": "Three variants:",
+      "properties": "",
+      "pins": "<VarName>(out,type varies) | self(in,object \u2014 hidden/visible/absent per variant)",
+      "notes": [
+        "A) Self-context: VariableReference=(MemberName=\"<name>\",MemberGuid=<GUID>,bSelfContext=True). self pin hidden.",
+        "B) External: VariableReference=(MemberParent=\"<class>\",MemberName=\"<name>\",MemberGuid=<GUID>), SelfContextInfo=NotSelfContext. self pin visible, needs wire from Cast.",
+        "C) Local scope: VariableReference=(MemberScope=\"<function>\",MemberName=\"<name>\",MemberGuid=<GUID>). No self pin.",
+        "MemberGuid MUST match exactly. Enum vars use PinCategory=\"byte\"+PinSubCategoryObject=enum path. Float/double use PinCategory=\"real\",PinSubCategory=\"double\"."
+      ]
+    },
+    {
+      "name": "K2Node_VariableSet",
+      "class": "/Script/BlueprintGraph.K2Node_VariableSet",
+      "description": "Same three variants as VariableGet.",
+      "properties": "",
+      "pins": "execute(in,exec) | then(out,exec) | <VarName>(in,type varies) | self(in,object) | Output_Get(out,same type as var)",
+      "notes": [
+        "Output_Get allows chaining post-SET value without separate GET."
+      ]
+    },
+    {
+      "name": "K2Node_EnumLiteral",
+      "class": "/Script/BlueprintGraph.K2Node_EnumLiteral",
+      "description": "Constant enum dropdown.",
+      "properties": "Enum=\"<enum asset path>\"",
+      "pins": "Enum(in,byte/enum,DefaultValue=\"NewEnumeratorN\") | ReturnValue(out,byte/enum)",
+      "notes": [
+        "Both pins PinCategory=\"byte\" + PinSubCategoryObject=enum path. Dropdown only, no wire input. For runtime conversion use CastByteToEnum."
+      ]
+    },
+    {
+      "name": "K2Node_EnumEquality",
+      "class": "/Script/BlueprintGraph.K2Node_EnumEquality",
+      "description": "Pure. Compare two enum values.",
+      "properties": "",
+      "pins": "A(in,byte/enum) | B(in,byte/enum) | ReturnValue(out,bool)",
+      "notes": []
+    },
+    {
+      "name": "K2Node_PromotableOperator",
+      "class": "/Script/BlueprintGraph.K2Node_PromotableOperator",
+      "description": "Math/comparison operators. Pure.",
+      "properties": "OperationName=\"<name>\", FunctionReference MemberParent=KismetMathLibrary, MemberName=\"<Op>_<Type><Type>\"",
+      "pins": "A(in) | B(in) | ReturnValue(out) | ErrorTolerance(hidden,always present)",
+      "notes": [
+        "Integer operations:",
+        "EqualEqual / EqualEqual_IntInt -> bool",
+        "NotEqual / NotEqual_IntInt -> bool",
+        "GreaterEqual / GreaterEqual_IntInt -> bool",
+        "LessEqual / LessEqual_IntInt -> bool",
+        "Greater / Greater_IntInt -> bool",
+        "Less / Less_IntInt -> bool",
+        "Add / Add_IntInt -> int",
+        "Subtract / Subtract_IntInt -> int",
+        "Multiply / Multiply_IntInt -> int",
+        "Divide / Divide_IntInt -> int",
+        "Percent / Percent_IntInt -> int",
+        "Float/double: Add_DoubleDouble etc. PinCategory=\"real\", PinSubCategory=\"double\"."
+      ]
+    },
+    {
+      "name": "K2Node_CastByteToEnum",
+      "class": "/Script/BlueprintGraph.K2Node_CastByteToEnum",
+      "description": "Pure. Convert byte to enum at runtime.",
+      "properties": "Enum=\"<enum asset path>\", [bSafe=False]",
+      "pins": "Byte(in,byte) | ReturnValue(out,byte/enum)",
+      "notes": []
+    },
+    {
+      "name": "K2Node_Knot (Reroute)",
+      "class": "/Script/BlueprintGraph.K2Node_Knot",
+      "description": "Visual wire redirect. Does nothing.",
+      "properties": "",
+      "pins": "InputPin(in,matches type,bDefaultValueIsIgnored=True) | OutputPin(out,matches type)",
+      "notes": []
+    },
+    {
+      "name": "K2Node_MacroInstance",
+      "class": "/Script/BlueprintGraph.K2Node_MacroInstance",
+      "description": "GraphBlueprint always: /Script/Engine.Blueprint'/Engine/EditorBlueprintResources/StandardMacros.StandardMacros'",
+      "properties": "MacroGraphReference=(MacroGraph=\"<path>\",GraphBlueprint=\"<path>\",GraphGuid=<fixed GUID>)",
+      "pins": "exec(in,exec,lowercase) | InputObject(in,object) | Is Valid(out,exec) | Is Not Valid(out,exec)",
+      "notes": [
+        "ForEachLoop (GraphGuid=99DBFD5540A796041F72A5A9DA655026):",
+        "ForLoop (GraphGuid=55C904AF4B45FE1761FB55A8DB9FB801):",
+        "WhileLoop (GraphGuid=FA93B260444755CD702C21A123E9A987):",
+        "Note: Condition re-evaluated each iteration.",
+        "IsValid (GraphGuid=64422BCD430703FF5CAEA8B79A32AA65):"
+      ]
+    },
+    {
+      "name": "K2Node_GetSubsystemFromPC",
+      "class": "/Script/BlueprintGraph.K2Node_GetSubsystemFromPC",
+      "description": "Pure. Get subsystem from PlayerController.",
+      "properties": "CustomClass=\"<subsystem class path>\"",
+      "pins": "PlayerController(in,object) | ReturnValue(out,object)",
+      "notes": []
+    },
+    {
+      "name": "EdGraphNode_Comment",
+      "class": "/Script/UnrealEd.EdGraphNode_Comment",
+      "description": "Visual comment box. Not functional.",
+      "properties": "NodeComment=\"<text>\", CommentColor=(R,G,B,A), NodeWidth=<int>, NodeHeight=<int>",
+      "pins": "",
+      "notes": [
+        "No pins."
+      ]
+    }
+  ],
+  "pin_types": [
+    {
+      "pin_type": "exec",
+      "details": "PinCategory=\"exec\". No default. Direction omitted=input, EGPD_Output=output."
+    },
+    {
+      "pin_type": "bool",
+      "details": "PinCategory=\"bool\". DefaultValue=\"true\"/\"false\"."
+    },
+    {
+      "pin_type": "int",
+      "details": "PinCategory=\"int\". DefaultValue=\"0\"."
+    },
+    {
+      "pin_type": "real",
+      "details": "PinCategory=\"real\", PinSubCategory=\"double\" (UE5.1+) or \"float\". DefaultValue=\"0.0\"."
+    },
+    {
+      "pin_type": "byte",
+      "details": "PinCategory=\"byte\". PinSubCategoryObject=enum path for enums, None for raw byte. DefaultValue=\"NewEnumeratorN\" for enums."
+    },
+    {
+      "pin_type": "string",
+      "details": "PinCategory=\"string\". DefaultValue=\"<text>\"."
+    },
+    {
+      "pin_type": "name",
+      "details": "PinCategory=\"name\". DefaultValue=\"None\". bIsConst=True typically."
+    },
+    {
+      "pin_type": "object",
+      "details": "PinCategory=\"object\". PinSubCategoryObject=<class path>. No default (wired)."
+    },
+    {
+      "pin_type": "class",
+      "details": "PinCategory=\"class\". PinSubCategoryObject=<base class>. bIsUObjectWrapper=True on some. DefaultObject=<specific class>."
+    },
+    {
+      "pin_type": "struct",
+      "details": "PinCategory=\"struct\". PinSubCategoryObject=<struct path>. DefaultValue=\"(Field=val,...)\"."
+    },
+    {
+      "pin_type": "wildcard",
+      "details": "PinCategory=\"wildcard\". ContainerType=Array for arrays, None for singles. Resolves on connection."
+    },
+    {
+      "pin_type": "delegate",
+      "details": "PinCategory=\"delegate\". PinSubCategoryMemberReference=(MemberParent,MemberName,MemberGuid)."
+    },
+    {
+      "pin_type": "special",
+      "details": "Special \u2014 self pin:"
+    },
+    {
+      "pin_type": "Self-context",
+      "details": "PinSubCategory=\"self\", bHidden=True, DefaultValue=\"self\" (pure funcs)"
+    },
+    {
+      "pin_type": "External",
+      "details": "PinSubCategory=\"\", PinSubCategoryObject=class path, bHidden=False (needs wire)"
+    },
+    {
+      "pin_type": "Local scope",
+      "details": "no self pin at all"
+    },
+    {
+      "pin_type": "special",
+      "details": "Special \u2014 Output_Get (VariableSet only):"
+    }
+  ],
+  "connection_patterns": [
+    {
+      "name": "Client RPC with IsLocallyControlled guard",
+      "steps": [
+        "CustomEvent.then -> Branch.execute",
+        "IsLocallyControlled.ReturnValue -> Branch.Condition",
+        "Branch.true -> Cast(PlayerController).execute",
+        "GetController.ReturnValue -> Cast.Object",
+        "Cast.then -> CreateWidget.execute",
+        "Cast.AsPlayerController -> CreateWidget.OwningPlayer",
+        "CreateWidget.then -> AddToViewport.execute",
+        "CreateWidget.ReturnValue -> AddToViewport.self"
+      ]
+    },
+    {
+      "name": "Enum equality check",
+      "steps": [
+        "VariableGet(enum).output -> EnumEquality.A",
+        "EnumLiteral.ReturnValue -> EnumEquality.B",
+        "EnumEquality.ReturnValue -> Branch.Condition"
+      ]
+    },
+    {
+      "name": "Access GameMode/GameState",
+      "steps": [
+        "GetGameMode.ReturnValue -> Cast(GM).Object",
+        "Cast.AsGM -> [wire to GM function/variable self pin]",
+        "GetGameState.ReturnValue -> Cast(GS).Object",
+        "Cast.AsGS -> [wire to GS variable self pin]"
+      ]
+    },
+    {
+      "name": "ForEachLoop iterator",
+      "steps": [
+        "GetAllActorsOfClass.then -> ForEachLoop.Exec",
+        "GetAllActorsOfClass.OutActors -> ForEachLoop.Array",
+        "ForEachLoop.LoopBody -> Cast.execute",
+        "ForEachLoop.ArrayElement -> Cast.Object",
+        "Cast.then -> [action on cast result]",
+        "Cast.As<Class> -> [target for function calls/variable access]",
+        "ForEachLoop.Completed -> [next action]"
+      ]
+    },
+    {
+      "name": "External variable SET with Output_Get",
+      "steps": [
+        "[prev exec] -> VariableSet.execute",
+        "[Cast.As<Class>] -> VariableSet.self",
+        "VariableSet.then -> [next exec]",
+        "VariableSet.Output_Get -> [chain value without separate GET]"
+      ]
+    },
+    {
+      "name": "WhileLoop with Array Contains",
+      "steps": [
+        "WhileLoop.Condition <- ArrayContains.ReturnValue",
+        "ArrayContains.TargetArray <- [GET array var]",
+        "ArrayContains.ItemToFind <- Conv_IntToByte.ReturnValue <- [GET index var]",
+        "WhileLoop.LoopBody -> [increment index: GET+Add(1)+Percent(N)+SET]",
+        "WhileLoop.Completed -> [use current index for assignment]"
+      ]
+    },
+    {
+      "name": "Widget cleanup",
+      "steps": [
+        "VariableGet(widget).output -> RemoveFromParent.self",
+        "RemoveFromParent.then -> SetInputMode_GameOnly.execute"
+      ]
+    },
+    {
+      "name": "BeginPlay -> Cast GS -> SetTimer -> CreateWidget",
+      "steps": [
+        "Event(BeginPlay).then -> Cast(GS).execute",
+        "GetGameState.ReturnValue -> Cast.Object",
+        "Cast.then -> SET(GSRef).execute -> SetTimer.execute",
+        "[parallel] -> IsValid(widget var) -> IsNotValid -> CreateWidget -> SET(widget var) -> AddToViewport"
+      ]
+    }
+  ],
+  "counts": {
+    "node_types": 18,
+    "pin_types": 17,
+    "connection_patterns": 8
+  }
+}

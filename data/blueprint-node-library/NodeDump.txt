@@ -1,0 +1,308 @@
+===============================================================================
+UE5 BLUEPRINT NODE PASTE LIBRARY
+===============================================================================
+
+===============================================================================
+1. NODE TYPES
+===============================================================================
+
+--- K2Node_CustomEvent ---
+Class: /Script/BlueprintGraph.K2Node_CustomEvent
+Custom event entry point. Used for RPCs and user-defined events.
+Properties: CustomFunctionName="<name>", FunctionFlags=<int> (218235072=Client+Reliable RPC), NodeGuid=<32hex>
+Pins: OutputDelegate(out,delegate) | then(out,exec) | [custom params]
+Notes: FunctionFlags determines RPC type. OutputDelegate MemberGuid matches NodeGuid. No FunctionFlags = plain event.
+
+--- K2Node_Event ---
+Class: /Script/BlueprintGraph.K2Node_Event
+Engine event override (BeginPlay, Tick, PostLogin, etc.)
+Properties: EventReference=(MemberParent="<class>",MemberName="<event>"), bOverrideFunction=True, bInternalEvent=True
+Pins: OutputDelegate(out,delegate,hidden) | then(out,exec)
+Notes: CANNOT be pasted — must place manually via right-click menu.
+
+--- K2Node_CallFunction (impure) ---
+Class: /Script/BlueprintGraph.K2Node_CallFunction
+Function call with execution flow.
+Properties: FunctionReference=(MemberParent="<class>",MemberName="<func>") OR (MemberName="<func>",MemberGuid=<GUID>,bSelfContext=True)
+Optional: AdvancedPinDisplay=Hidden, EnabledState=DevelopmentOnly
+Pins: execute(in,exec) | then(out,exec) | self(in,object) | WorldContextObject(in,object,hidden) | [params] | ReturnValue(out)
+Self-context: bSelfContext=True, self pin PinSubCategory="self", bHidden varies
+External/library: MemberParent=class path, self hidden with DefaultObject=Default__<Library>
+Common functions: AddToViewport, RemoveFromParent, SetInputMode_GameOnly, GetAllActorsOfClass, PrintString, K2_SetTimer, Delay, SetTimerByFunctionName, SpawnActor, DestroyActor
+
+--- K2Node_CallFunction (pure) ---
+Same class, bDefaultsToPureFunc=True
+No execute/then pins. Only self + params + ReturnValue.
+Common functions: IsLocallyControlled, GetController, GetGameMode, GetGameState, Conv_IntToByte, GetActorLocation
+
+--- K2Node_CallArrayFunction ---
+Class: /Script/BlueprintGraph.K2Node_CallArrayFunction
+Array operations. MemberParent=KismetArrayLibrary.
+Array_Clear (impure): execute, then, TargetArray(wildcard array,byref). No return.
+Array_Add (impure): execute, then, TargetArray(wildcard array,byref), NewItem(wildcard,byref const), ReturnValue(int).
+Array_Contains (pure): bDefaultsToPureFunc=True. TargetArray(wildcard array,byref const), ItemToFind(wildcard,byref const), ReturnValue(bool).
+Notes: TargetArray PinCategory="wildcard", ContainerType=Array, bIsReference=True. Wildcard resolves on connection.
+
+--- K2Node_IfThenElse (Branch) ---
+Class: /Script/BlueprintGraph.K2Node_IfThenElse
+Pins: execute(in,exec) | Condition(in,bool,default="true") | then(out,exec,friendly="true") | else(out,exec,friendly="false")
+
+--- K2Node_DynamicCast ---
+Class: /Script/BlueprintGraph.K2Node_DynamicCast
+Properties: TargetType="<full class path>"
+Pins: execute(in,exec) | then(out,exec) | CastFailed(out,exec) | Object(in,object or wildcard) | As<ClassName>(out,object) | bSuccess(out,bool,HIDDEN)
+"As" pin naming: spaces inserted at capitals. e.g. "AsBP Quarterback", "AsGM Game", "AsPlayer Controller"
+Object pin: PinCategory="wildcard" from ForEachLoop, "object" from typed sources.
+
+--- K2Node_CreateWidget ---
+Class: /Script/UMGEditor.K2Node_CreateWidget (NOT BlueprintGraph)
+Pins: execute(in,exec) | then(out,exec) | Class(in,class,DefaultObject=widget path) | ReturnValue(out,object) | OwningPlayer(in,object=PlayerController)
+Notes: OwningPlayer wired from Cast to PlayerController. ReturnValue wires to AddToViewport self and/or SET widget var.
+
+--- K2Node_VariableGet ---
+Class: /Script/BlueprintGraph.K2Node_VariableGet
+Three variants:
+  A) Self-context: VariableReference=(MemberName="<name>",MemberGuid=<GUID>,bSelfContext=True). self pin hidden.
+  B) External: VariableReference=(MemberParent="<class>",MemberName="<name>",MemberGuid=<GUID>), SelfContextInfo=NotSelfContext. self pin visible, needs wire from Cast.
+  C) Local scope: VariableReference=(MemberScope="<function>",MemberName="<name>",MemberGuid=<GUID>). No self pin.
+Pins: <VarName>(out,type varies) | self(in,object — hidden/visible/absent per variant)
+Notes: MemberGuid MUST match exactly. Enum vars use PinCategory="byte"+PinSubCategoryObject=enum path. Float/double use PinCategory="real",PinSubCategory="double".
+
+--- K2Node_VariableSet ---
+Class: /Script/BlueprintGraph.K2Node_VariableSet
+Same three variants as VariableGet.
+Pins: execute(in,exec) | then(out,exec) | <VarName>(in,type varies) | self(in,object) | Output_Get(out,same type as var)
+Notes: Output_Get allows chaining post-SET value without separate GET.
+
+--- K2Node_EnumLiteral ---
+Class: /Script/BlueprintGraph.K2Node_EnumLiteral
+Constant enum dropdown.
+Properties: Enum="<enum asset path>"
+Pins: Enum(in,byte/enum,DefaultValue="NewEnumeratorN") | ReturnValue(out,byte/enum)
+Notes: Both pins PinCategory="byte" + PinSubCategoryObject=enum path. Dropdown only, no wire input. For runtime conversion use CastByteToEnum.
+
+--- K2Node_EnumEquality ---
+Class: /Script/BlueprintGraph.K2Node_EnumEquality
+Pure. Compare two enum values.
+Pins: A(in,byte/enum) | B(in,byte/enum) | ReturnValue(out,bool)
+
+--- K2Node_PromotableOperator ---
+Class: /Script/BlueprintGraph.K2Node_PromotableOperator
+Math/comparison operators. Pure.
+Properties: OperationName="<name>", FunctionReference MemberParent=KismetMathLibrary, MemberName="<Op>_<Type><Type>"
+Pins: A(in) | B(in) | ReturnValue(out) | ErrorTolerance(hidden,always present)
+Integer operations:
+  EqualEqual / EqualEqual_IntInt -> bool
+  NotEqual / NotEqual_IntInt -> bool
+  GreaterEqual / GreaterEqual_IntInt -> bool
+  LessEqual / LessEqual_IntInt -> bool
+  Greater / Greater_IntInt -> bool
+  Less / Less_IntInt -> bool
+  Add / Add_IntInt -> int
+  Subtract / Subtract_IntInt -> int
+  Multiply / Multiply_IntInt -> int
+  Divide / Divide_IntInt -> int
+  Percent / Percent_IntInt -> int
+Float/double: Add_DoubleDouble etc. PinCategory="real", PinSubCategory="double".
+
+--- K2Node_CastByteToEnum ---
+Class: /Script/BlueprintGraph.K2Node_CastByteToEnum
+Pure. Convert byte to enum at runtime.
+Properties: Enum="<enum asset path>", [bSafe=False]
+Pins: Byte(in,byte) | ReturnValue(out,byte/enum)
+
+--- K2Node_Knot (Reroute) ---
+Class: /Script/BlueprintGraph.K2Node_Knot
+Visual wire redirect. Does nothing.
+Pins: InputPin(in,matches type,bDefaultValueIsIgnored=True) | OutputPin(out,matches type)
+
+--- K2Node_MacroInstance ---
+Class: /Script/BlueprintGraph.K2Node_MacroInstance
+Properties: MacroGraphReference=(MacroGraph="<path>",GraphBlueprint="<path>",GraphGuid=<fixed GUID>)
+GraphBlueprint always: /Script/Engine.Blueprint'/Engine/EditorBlueprintResources/StandardMacros.StandardMacros'
+
+ForEachLoop (GraphGuid=99DBFD5540A796041F72A5A9DA655026):
+  Pins: Exec(in,exec) | Array(in,wildcard array) | LoopBody(out,exec) | Array Element(out,wildcard) | Array Index(out,int) | Completed(out,exec)
+
+ForLoop (GraphGuid=55C904AF4B45FE1761FB55A8DB9FB801):
+  Pins: execute(in,exec) | FirstIndex(in,int) | LastIndex(in,int) | LoopBody(out,exec) | Index(out,int) | Completed(out,exec)
+
+WhileLoop (GraphGuid=FA93B260444755CD702C21A123E9A987):
+  Pins: execute(in,exec) | Condition(in,bool) | LoopBody(out,exec) | Completed(out,exec)
+  Note: Condition re-evaluated each iteration.
+
+IsValid (GraphGuid=64422BCD430703FF5CAEA8B79A32AA65):
+  Pins: exec(in,exec,lowercase) | InputObject(in,object) | Is Valid(out,exec) | Is Not Valid(out,exec)
+
+--- K2Node_GetSubsystemFromPC ---
+Class: /Script/BlueprintGraph.K2Node_GetSubsystemFromPC
+Pure. Get subsystem from PlayerController.
+Properties: CustomClass="<subsystem class path>"
+Pins: PlayerController(in,object) | ReturnValue(out,object)
+
+--- EdGraphNode_Comment ---
+Class: /Script/UnrealEd.EdGraphNode_Comment
+Visual comment box. Not functional.
+Properties: NodeComment="<text>", CommentColor=(R,G,B,A), NodeWidth=<int>, NodeHeight=<int>
+No pins.
+
+
+===============================================================================
+2. PIN TYPES
+===============================================================================
+
+exec:     PinCategory="exec". No default. Direction omitted=input, EGPD_Output=output.
+bool:     PinCategory="bool". DefaultValue="true"/"false".
+int:      PinCategory="int". DefaultValue="0".
+real:     PinCategory="real", PinSubCategory="double" (UE5.1+) or "float". DefaultValue="0.0".
+byte:     PinCategory="byte". PinSubCategoryObject=enum path for enums, None for raw byte. DefaultValue="NewEnumeratorN" for enums.
+string:   PinCategory="string". DefaultValue="<text>".
+name:     PinCategory="name". DefaultValue="None". bIsConst=True typically.
+object:   PinCategory="object". PinSubCategoryObject=<class path>. No default (wired).
+class:    PinCategory="class". PinSubCategoryObject=<base class>. bIsUObjectWrapper=True on some. DefaultObject=<specific class>.
+struct:   PinCategory="struct". PinSubCategoryObject=<struct path>. DefaultValue="(Field=val,...)".
+wildcard: PinCategory="wildcard". ContainerType=Array for arrays, None for singles. Resolves on connection.
+delegate: PinCategory="delegate". PinSubCategoryMemberReference=(MemberParent,MemberName,MemberGuid).
+
+Special — self pin:
+  Self-context: PinSubCategory="self", bHidden=True, DefaultValue="self" (pure funcs)
+  External: PinSubCategory="", PinSubCategoryObject=class path, bHidden=False (needs wire)
+  Local scope: no self pin at all
+
+Special — Output_Get (VariableSet only):
+  PinName="Output_Get", Direction=EGPD_Output, same type as variable. Post-SET value without separate GET.
+
+
+===============================================================================
+3. CONNECTION PATTERNS
+===============================================================================
+
+--- Client RPC with IsLocallyControlled guard ---
+CustomEvent.then -> Branch.execute
+IsLocallyControlled.ReturnValue -> Branch.Condition
+Branch.true -> Cast(PlayerController).execute
+GetController.ReturnValue -> Cast.Object
+Cast.then -> CreateWidget.execute
+Cast.AsPlayerController -> CreateWidget.OwningPlayer
+CreateWidget.then -> AddToViewport.execute
+CreateWidget.ReturnValue -> AddToViewport.self
+
+--- Enum equality check ---
+VariableGet(enum).output -> EnumEquality.A
+EnumLiteral.ReturnValue -> EnumEquality.B
+EnumEquality.ReturnValue -> Branch.Condition
+
+--- Access GameMode/GameState ---
+GetGameMode.ReturnValue -> Cast(GM).Object
+Cast.AsGM -> [wire to GM function/variable self pin]
+GetGameState.ReturnValue -> Cast(GS).Object
+Cast.AsGS -> [wire to GS variable self pin]
+
+--- ForEachLoop iterator ---
+GetAllActorsOfClass.then -> ForEachLoop.Exec
+GetAllActorsOfClass.OutActors -> ForEachLoop.Array
+ForEachLoop.LoopBody -> Cast.execute
+ForEachLoop.ArrayElement -> Cast.Object
+Cast.then -> [action on cast result]
+Cast.As<Class> -> [target for function calls/variable access]
+ForEachLoop.Completed -> [next action]
+
+--- External variable SET with Output_Get ---
+[prev exec] -> VariableSet.execute
+[Cast.As<Class>] -> VariableSet.self
+VariableSet.then -> [next exec]
+VariableSet.Output_Get -> [chain value without separate GET]
+
+--- WhileLoop with Array Contains ---
+WhileLoop.Condition <- ArrayContains.ReturnValue
+ArrayContains.TargetArray <- [GET array var]
+ArrayContains.ItemToFind <- Conv_IntToByte.ReturnValue <- [GET index var]
+WhileLoop.LoopBody -> [increment index: GET+Add(1)+Percent(N)+SET]
+WhileLoop.Completed -> [use current index for assignment]
+
+--- Widget cleanup ---
+VariableGet(widget).output -> RemoveFromParent.self
+RemoveFromParent.then -> SetInputMode_GameOnly.execute
+
+--- BeginPlay -> Cast GS -> SetTimer -> CreateWidget ---
+Event(BeginPlay).then -> Cast(GS).execute
+GetGameState.ReturnValue -> Cast.Object
+Cast.then -> SET(GSRef).execute -> SetTimer.execute
+[parallel] -> IsValid(widget var) -> IsNotValid -> CreateWidget -> SET(widget var) -> AddToViewport
+
+
+===============================================================================
+4. ENGINE PATHS
+===============================================================================
+
+--- Engine Classes ---
+/Script/CoreUObject.Class'/Script/Engine.Actor'
+/Script/CoreUObject.Class'/Script/Engine.Pawn'
+/Script/CoreUObject.Class'/Script/Engine.Controller'
+/Script/CoreUObject.Class'/Script/Engine.PlayerController'
+/Script/CoreUObject.Class'/Script/Engine.GameModeBase'
+/Script/CoreUObject.Class'/Script/Engine.GameStateBase'
+/Script/CoreUObject.Class'/Script/CoreUObject.Object'
+
+--- Engine Libraries ---
+/Script/CoreUObject.Class'/Script/Engine.GameplayStatics'
+/Script/CoreUObject.Class'/Script/Engine.KismetMathLibrary'
+/Script/CoreUObject.Class'/Script/Engine.KismetSystemLibrary'
+/Script/CoreUObject.Class'/Script/Engine.KismetArrayLibrary'
+
+--- Engine Defaults ---
+/Script/Engine.Default__GameplayStatics
+/Script/Engine.Default__KismetSystemLibrary
+/Script/Engine.Default__KismetMathLibrary
+
+--- UMG/Widget ---
+/Script/CoreUObject.Class'/Script/UMG.UserWidget'
+/Script/CoreUObject.Class'/Script/UMG.Widget'
+/Script/CoreUObject.Class'/Script/UMG.WidgetBlueprintLibrary'
+/Script/UMG.Default__WidgetBlueprintLibrary
+
+--- Enhanced Input ---
+/Script/CoreUObject.Class'/Script/EnhancedInput.EnhancedInputLocalPlayerSubsystem'
+
+--- Structs ---
+/Script/CoreUObject.ScriptStruct'/Script/CoreUObject.LinearColor'
+
+--- Macro Paths (engine-fixed) ---
+/Script/Engine.Blueprint'/Engine/EditorBlueprintResources/StandardMacros.StandardMacros'
+StandardMacros:ForEachLoop | StandardMacros:ForLoop | StandardMacros:WhileLoop | StandardMacros:IsValid
+
+
+===============================================================================
+5. PASTE RULES
+===============================================================================
+
+1. NodeGuid and PinId = 32-char hex, regenerated on paste. Must be unique in paste block.
+2. Name= in Begin Object must be unique in paste block.
+3. ExportPath remapped by engine on paste.
+4. MemberGuid on VariableReference/FunctionReference MUST match exactly. Wrong = error.
+5. Asset paths (enum, class, struct) MUST be exact. Wrong = node error.
+6. LinkedTo syntax: LinkedTo=(NodeName PinId,). Both ends must reference each other. NodeName = Name= value, not NodeGuid.
+7. bDefaultsToPureFunc=True = pure node (no exec pins).
+8. bHidden=True on self pin = self-context. False = external (needs wire).
+9. SelfContextInfo=NotSelfContext = accessing another object's variable/function.
+10. MemberScope="FunctionName" = local variable (no self pin).
+11. ContainerType=Array = TArray. None = single value.
+12. bIsUObjectWrapper=True on class pins (GetAllActorsOfClass).
+13. ~300px spacing between nodes.
+14. AdvancedPinDisplay=Hidden collapses advanced pins (bAdvancedView=True).
+15. EnabledState=DevelopmentOnly = stripped in shipping builds.
+
+
+===============================================================================
+6. MACRO GRAPH GUIDS (engine-fixed)
+===============================================================================
+
+ForEachLoop  = 99DBFD5540A796041F72A5A9DA655026
+ForLoop      = 55C904AF4B45FE1761FB55A8DB9FB801
+WhileLoop    = FA93B260444755CD702C21A123E9A987
+IsValid      = 64422BCD430703FF5CAEA8B79A32AA65
+
+
+===============================================================================
+END
+===============================================================================

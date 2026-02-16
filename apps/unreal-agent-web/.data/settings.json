@@ -1,0 +1,17 @@
+{
+  "unreal_base_url": "http://127.0.0.1:49719/unreal-agent/v1",
+  "llm_enabled": false,
+  "llm_base_url": "https://api.openai.com/v1",
+  "llm_model": "gpt-4.1-mini",
+  "llm_api_key": "",
+  "llm_temperature": 0.1,
+  "llm_max_replans": 1,
+  "require_approval_for_mutations": false,
+  "risky_actions": [
+    "create_blueprint",
+    "modify_blueprint_graph",
+    "spawn_actor"
+  ],
+  "min_api_version": "v1",
+  "min_plugin_version": "0.1.0"
+}
