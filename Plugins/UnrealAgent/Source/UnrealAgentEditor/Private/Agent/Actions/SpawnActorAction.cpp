@@ -60,6 +60,7 @@ FAgentActionResult FSpawnActorAction::Execute(const FAgentActionRequest& Request
     FString FolderPath;
     FString StaticMeshPath;
     bool bSelectAfterSpawn = true;
+    TArray<FName> Tags;
 
     if (!Request.PayloadJson.IsEmpty())
     {
@@ -75,6 +76,18 @@ FAgentActionResult FSpawnActorAction::Execute(const FAgentActionRequest& Request
         Payload->TryGetStringField(TEXT("folder_path"), FolderPath);
         Payload->TryGetStringField(TEXT("static_mesh_path"), StaticMeshPath);
         Payload->TryGetBoolField(TEXT("select_actor"), bSelectAfterSpawn);
+        const TArray<TSharedPtr<FJsonValue>>* TagArray = nullptr;
+        if (Payload->TryGetArrayField(TEXT("tags"), TagArray) && TagArray != nullptr)
+        {
+            for (const TSharedPtr<FJsonValue>& TagValue : *TagArray)
+            {
+                FString TagString;
+                if (TagValue.IsValid() && TagValue->TryGetString(TagString) && !TagString.IsEmpty())
+                {
+                    Tags.Add(FName(*TagString));
+                }
+            }
+        }
 
         FVector ParsedVector;
         if (UnrealAgentPrivate::ReadVectorField(Payload, TEXT("location"), ParsedVector))
@@ -126,6 +139,15 @@ FAgentActionResult FSpawnActorAction::Execute(const FAgentActionRequest& Request
         DryRunPayload->SetStringField(TEXT("class_path"), ActorClass->GetPathName());
         DryRunPayload->SetStringField(TEXT("actor_label"), ActorLabel);
         DryRunPayload->SetStringField(TEXT("static_mesh_path"), StaticMeshPath);
+        if (Tags.Num() > 0)
+        {
+            TArray<TSharedPtr<FJsonValue>> TagValues;
+            for (const FName& Tag : Tags)
+            {
+                TagValues.Add(MakeShared<FJsonValueString>(Tag.ToString()));
+            }
+            DryRunPayload->SetArrayField(TEXT("tags"), TagValues);
+        }
         DryRunPayload->SetArrayField(
             TEXT("location"),
             {
@@ -159,6 +181,13 @@ FAgentActionResult FSpawnActorAction::Execute(const FAgentActionRequest& Request
     if (!FolderPath.IsEmpty())
     {
         SpawnedActor->SetFolderPath(*FolderPath);
+    }
+    for (const FName& Tag : Tags)
+    {
+        if (!SpawnedActor->Tags.Contains(Tag))
+        {
+            SpawnedActor->Tags.Add(Tag);
+        }
     }
 
     if (!StaticMeshPath.IsEmpty())
@@ -199,6 +228,15 @@ FAgentActionResult FSpawnActorAction::Execute(const FAgentActionRequest& Request
     SuccessPayload->SetStringField(TEXT("actor_label"), SpawnedActor->GetActorLabel());
     SuccessPayload->SetStringField(TEXT("class_path"), ActorClass->GetPathName());
     SuccessPayload->SetStringField(TEXT("static_mesh_path"), StaticMeshPath);
+    if (Tags.Num() > 0)
+    {
+        TArray<TSharedPtr<FJsonValue>> TagValues;
+        for (const FName& Tag : Tags)
+        {
+            TagValues.Add(MakeShared<FJsonValueString>(Tag.ToString()));
+        }
+        SuccessPayload->SetArrayField(TEXT("tags"), TagValues);
+    }
     SuccessPayload->SetStringField(TEXT("world"), EditorWorld->GetPathName());
     SuccessPayload->SetStringField(TEXT("level"), SpawnedActor->GetLevel()->GetPathName());
 

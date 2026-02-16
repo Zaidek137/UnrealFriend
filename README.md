@@ -17,6 +17,23 @@ It gives you:
   - `inspect_blueprint_graph`
   - `analyze_blueprint_graph`
   - `analyze_blueprint_asset`
+  - recipe/world/data/validation families:
+    - `create_widget_blueprint`
+    - `create_objective_actor`
+    - `wire_objective_progress`
+    - `create_timer_system`
+    - `create_score_system`
+    - `create_restart_flow`
+    - `batch_spawn_actors`
+    - `layout_along_spline`
+    - `create_level_chunk`
+    - `tag_and_group_actors`
+    - `create_data_asset`
+    - `validate_data_schema`
+    - `inspect_compile_errors`
+    - `run_pie_scenario`
+    - `assert_world_state`
+    - `capture_screenshot`
   - `modify_blueprint_graph`:
     - `add_print_string_on_begin_play`
     - `add_variable`
@@ -79,10 +96,22 @@ The plugin now starts a local-only HTTP bridge in the editor:
   - `POST /execute`
   - `POST /run-plan`
   - `POST /run-goal`
+  - `GET /recipes`
+  - `POST /run-recipe`
+  - `POST /validate-recipe`
+  - `POST /run-scenario`
+  - `GET /debug/traces`
+  - `POST /debug/clear`
 
 Port override:
 
 - Launch UE with `-UnrealAgentPort=48777` to use a different port.
+
+Deterministic recipe catalog:
+
+- `data/recipes/*.json`
+- Default namespace root: `/Game/AgentGenerated`
+- Profiles: `balanced` (default), `strict`, `aggressive` (dev)
 
 Example: list actions
 
@@ -152,6 +181,20 @@ curl -X POST http://127.0.0.1:47777/unreal-agent/v1/execute \
       "blueprint_path": "/Game/AI/Blueprints/BP_EnemyGrunt"
     }
   }'
+```
+
+Example: fetch recent plugin debug traces
+
+```bash
+curl "http://127.0.0.1:47777/unreal-agent/v1/debug/traces?limit=50&filter=run-plan"
+```
+
+Example: clear plugin debug traces
+
+```bash
+curl -X POST http://127.0.0.1:47777/unreal-agent/v1/debug/clear \
+  -H "Content-Type: application/json" \
+  -d '{}'
 ```
 
 Example: inspect if an asset exists

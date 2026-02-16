@@ -46,6 +46,8 @@ def main() -> int:
 
     sub.add_parser("health")
     sub.add_parser("actions")
+    sub.add_parser("recipes")
+    sub.add_parser("release-metrics")
     sub.add_parser("info")
     sub.add_parser("state")
     sub.add_parser("approvals")
@@ -73,6 +75,26 @@ def main() -> int:
     run_plan.add_argument("--plan-json", required=True)
     run_plan.add_argument("--approval-token", default="")
 
+    run_recipe = sub.add_parser("run-recipe")
+    run_recipe.add_argument("--recipe-id", required=True)
+    run_recipe.add_argument("--inputs-json", default="{}")
+    run_recipe.add_argument("--dry-run", action="store_true")
+    run_recipe.add_argument("--stop-on-error", action="store_true", default=True)
+    run_recipe.add_argument("--no-stop-on-error", action="store_true")
+    run_recipe.add_argument("--profile", default="balanced")
+    run_recipe.add_argument("--approval-token", default="")
+
+    validate_recipe = sub.add_parser("validate-recipe")
+    validate_recipe.add_argument("--recipe-id", required=True)
+    validate_recipe.add_argument("--inputs-json", default="{}")
+    validate_recipe.add_argument("--profile", default="balanced")
+
+    run_scenario = sub.add_parser("run-scenario")
+    run_scenario.add_argument("--assertions-json", required=True)
+    run_scenario.add_argument("--dry-run", action="store_true")
+    run_scenario.add_argument("--profile", default="balanced")
+    run_scenario.add_argument("--release-validation", action="store_true")
+
     direct = sub.add_parser("direct-execute")
     direct.add_argument("--action", required=True)
     direct.add_argument("--payload-json", default="{}")
@@ -86,6 +108,10 @@ def main() -> int:
         result = request_json("GET", f"{base}/api/health")
     elif args.cmd == "actions":
         result = request_json("GET", f"{base}/api/actions")
+    elif args.cmd == "recipes":
+        result = request_json("GET", f"{base}/api/recipes")
+    elif args.cmd == "release-metrics":
+        result = request_json("GET", f"{base}/api/release-metrics")
     elif args.cmd == "info":
         result = request_json("GET", f"{base}/api/info")
     elif args.cmd == "state":
@@ -125,6 +151,49 @@ def main() -> int:
     elif args.cmd == "run-plan":
         plan = parse_json_arg(args.plan_json, "plan-json")
         result = request_json("POST", f"{base}/api/run-plan", {"plan": plan, "approval_token": args.approval_token})
+    elif args.cmd == "run-recipe":
+        inputs = parse_json_arg(args.inputs_json, "inputs-json")
+        stop_on_error = False if args.no_stop_on_error else bool(args.stop_on_error)
+        result = request_json(
+            "POST",
+            f"{base}/api/run-recipe",
+            {
+                "recipe_id": args.recipe_id,
+                "inputs": inputs,
+                "dry_run": bool(args.dry_run),
+                "stop_on_error": stop_on_error,
+                "profile": args.profile,
+                "approval_token": args.approval_token,
+            },
+        )
+    elif args.cmd == "validate-recipe":
+        inputs = parse_json_arg(args.inputs_json, "inputs-json")
+        result = request_json(
+            "POST",
+            f"{base}/api/validate-recipe",
+            {
+                "recipe_id": args.recipe_id,
+                "inputs": inputs,
+                "profile": args.profile,
+            },
+        )
+    elif args.cmd == "run-scenario":
+        try:
+            assertions = json.loads(args.assertions_json)
+            if not isinstance(assertions, list):
+                raise ValueError("assertions-json must be a JSON array")
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(f"Invalid assertions-json: {exc}") from exc
+        result = request_json(
+            "POST",
+            f"{base}/api/run-scenario",
+            {
+                "assertions": assertions,
+                "dry_run": bool(args.dry_run),
+                "profile": args.profile,
+                "release_validation": bool(args.release_validation),
+            },
+        )
     else:
         payload = parse_json_arg(args.payload_json, "payload-json")
         result = request_json(

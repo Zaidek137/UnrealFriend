@@ -29,7 +29,7 @@ The MCP server can auto-start the web bridge (`UNREAL_AGENT_WEB_AUTOSTART=true`)
 1. Open this folder in Cursor:
    - `/Users/ericdiaz/Desktop/Unreal Friend`
 2. Reload Cursor window so it re-reads `.cursor/mcp.json`.
-3. In Cursor agent chat, verify MCP tool availability (you should see `unreal_chat`, `unreal_state`, `unreal_info`, etc.).
+3. In Cursor agent chat, verify MCP tool availability (you should see `unreal_chat`, `unreal_run_recipe`, `unreal_validate_recipe`, etc.).
 
 ## Primary Tool
 
@@ -40,10 +40,15 @@ Example prompt in Cursor chat:
 - "Create BP_EnemyScout in /Game/AI/Blueprints, add bool bAggroEnabled default true, then print 'Enemy ready' on BeginPlay."
 
 The agent should call `unreal_chat` and not require manual action names.
+`unreal_chat` now routes to deterministic recipes first when intent matches (objective loops, world layout, asset pack setup).
 
 ## Available MCP Tools
 
 - `unreal_chat` (natural language; primary)
+- `unreal_run_recipe`
+- `unreal_validate_recipe`
+- `unreal_run_scenario`
+- `unreal_debug_traces`
 - `unreal_info`
 - `unreal_state`
 - `unreal_actions`

@@ -40,12 +40,17 @@ No CLI commands are required for day-to-day use in this mode.
 - `GET /api/info`
 - `GET /api/state`
 - `GET /api/actions`
+- `GET /api/recipes`
+- `GET /api/release-metrics`
 - `GET /api/approvals`
 - `POST /api/settings`
 - `POST /api/approve`
 - `POST /api/direct-execute`
 - `POST /api/run-plan`
 - `POST /api/run-goal`
+- `POST /api/run-recipe`
+- `POST /api/validate-recipe`
+- `POST /api/run-scenario`
 - `POST /api/command` (LLM-backed command mode)
 - `POST /api/chat` (chat-first alias for natural-language clients)
 
@@ -67,11 +72,14 @@ Script:
 
 Commands:
 
-- `health`, `actions`, `info`, `state`, `approvals`
+- `health`, `actions`, `recipes`, `release-metrics`, `info`, `state`, `approvals`
 - `approve --approval-token ...`
 - `run-command`
 - `run-goal`
 - `run-plan`
+- `run-recipe`
+- `validate-recipe`
+- `run-scenario`
 - `direct-execute`
 
 Examples:

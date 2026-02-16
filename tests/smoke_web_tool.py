@@ -66,6 +66,21 @@ class StubUnrealHandler(BaseHTTPRequestHandler):
                 },
             )
             return
+        if self.path == "/unreal-agent/v1/recipes":
+            self._send(
+                HTTPStatus.OK,
+                {
+                    "success": True,
+                    "recipes": [
+                        {
+                            "recipe_id": "objective_loop_basic_sp",
+                            "version": "1.0.0",
+                            "description": "basic objective loop",
+                        }
+                    ],
+                },
+            )
+            return
         if self.path == "/unreal-agent/v1/state":
             self._send(
                 HTTPStatus.OK,
@@ -75,6 +90,25 @@ class StubUnrealHandler(BaseHTTPRequestHandler):
                     "editor_world": "/Engine/Transient.World_0",
                     "current_level": "/Game/Maps/TestMap",
                     "selected_actors": [],
+                },
+            )
+            return
+        if self.path.startswith("/unreal-agent/v1/debug/traces"):
+            self._send(
+                HTTPStatus.OK,
+                {
+                    "success": True,
+                    "count": 1,
+                    "limit": 50,
+                    "trace_file": "/tmp/debug_trace.jsonl",
+                    "traces": [
+                        {
+                            "trace_id": "t1",
+                            "route": "/unreal-agent/v1/execute",
+                            "success": True,
+                            "message": "ok",
+                        }
+                    ],
                 },
             )
             return
@@ -164,6 +198,51 @@ class StubUnrealHandler(BaseHTTPRequestHandler):
             if StubUnrealHandler.delay_run_goal_sec > 0:
                 time.sleep(StubUnrealHandler.delay_run_goal_sec)
             self._send(HTTPStatus.OK, {"success": True, "message": "goal ok", "payload": payload})
+            return
+        if self.path == "/unreal-agent/v1/run-recipe":
+            recipe_id = str(payload.get("recipe_id", ""))
+            self._send(
+                HTTPStatus.OK,
+                {
+                    "success": recipe_id != "force_recipe_fail",
+                    "message": "recipe ok" if recipe_id != "force_recipe_fail" else "recipe failed",
+                    "recipe_id": recipe_id,
+                    "execution": {"success": recipe_id != "force_recipe_fail"},
+                },
+            )
+            return
+        if self.path == "/unreal-agent/v1/validate-recipe":
+            recipe_id = str(payload.get("recipe_id", ""))
+            self._send(
+                HTTPStatus.OK,
+                {
+                    "success": recipe_id != "force_compile_fail",
+                    "message": "validation ok" if recipe_id != "force_compile_fail" else "compile failed",
+                    "error_code": "OK" if recipe_id != "force_compile_fail" else "COMPILE_FAILED",
+                    "validation_only": True,
+                    "recipe_id": recipe_id,
+                },
+            )
+            return
+        if self.path == "/unreal-agent/v1/run-scenario":
+            assertions = payload.get("assertions", [])
+            force_fail = False
+            if isinstance(assertions, list):
+                for item in assertions:
+                    if isinstance(item, dict) and bool(item.get("force_fail", False)):
+                        force_fail = True
+                        break
+            self._send(
+                HTTPStatus.OK if not force_fail else HTTPStatus.BAD_REQUEST,
+                {
+                    "success": not force_fail,
+                    "message": "scenario pass" if not force_fail else "scenario fail",
+                    "error_code": "OK" if not force_fail else "SCENARIO_FAILED",
+                },
+            )
+            return
+        if self.path == "/unreal-agent/v1/debug/clear":
+            self._send(HTTPStatus.OK, {"success": True, "message": "cleared"})
             return
 
         self._send(HTTPStatus.NOT_FOUND, {"success": False, "message": "not found"})
@@ -258,6 +337,11 @@ def run() -> None:
         status, _ = request_json("GET", f"{base}/api/state")
         assert_true(status == HTTPStatus.OK, "Expected /api/state to proxy correctly")
 
+        status, recipes = request_json("GET", f"{base}/api/recipes")
+        assert_true(status == HTTPStatus.OK, "Expected /api/recipes to succeed")
+        assert_true(recipes.get("success", False), "Expected /api/recipes success")
+        assert_true(int(recipes.get("local_recipe_count", 0)) >= 1, "Expected local recipe catalog")
+
         status, approval_required = request_json(
             "POST",
             f"{base}/api/direct-execute",
@@ -314,6 +398,72 @@ def run() -> None:
         )
         assert_true(status == HTTPStatus.OK, "Expected lock test settings update")
 
+        status, run_recipe = request_json(
+            "POST",
+            f"{base}/api/run-recipe",
+            {
+                "recipe_id": "objective_loop_basic_sp",
+                "inputs": {"objective_count": 2},
+                "dry_run": True,
+                "profile": "balanced",
+            },
+        )
+        assert_true(status == HTTPStatus.OK, "Expected /api/run-recipe success")
+        assert_true(run_recipe.get("success", False), "Expected recipe run success")
+
+        status, chat_recipe = request_json(
+            "POST",
+            f"{base}/api/chat",
+            {
+                "message": "Create a timed objective collection loop for parkour.",
+                "dry_run": True,
+            },
+        )
+        assert_true(status == HTTPStatus.OK, "Expected /api/chat recipe-first success")
+        assert_true(str(chat_recipe.get("mode", "")) == "recipe", "Expected chat recipe-first routing")
+
+        status, validate_recipe = request_json(
+            "POST",
+            f"{base}/api/validate-recipe",
+            {
+                "recipe_id": "objective_loop_basic_sp",
+                "inputs": {"objective_count": 2},
+                "profile": "balanced",
+            },
+        )
+        assert_true(status == HTTPStatus.OK, "Expected /api/validate-recipe success")
+        assert_true(validate_recipe.get("success", False), "Expected recipe validation success")
+
+        status, scenario_non_blocking = request_json(
+            "POST",
+            f"{base}/api/run-scenario",
+            {
+                "assertions": [{"label_contains": "Objective", "force_fail": True}],
+                "profile": "balanced",
+                "release_validation": False,
+            },
+        )
+        assert_true(status == HTTPStatus.OK, "Expected balanced scenario failure to be non-blocking")
+        assert_true(scenario_non_blocking.get("success", False), "Expected non-blocking wrapper success")
+        assert_true(not scenario_non_blocking.get("scenario_success", True), "Expected scenario_success false")
+
+        status, scenario_blocking = request_json(
+            "POST",
+            f"{base}/api/run-scenario",
+            {
+                "assertions": [{"label_contains": "Objective", "force_fail": True}],
+                "profile": "balanced",
+                "release_validation": True,
+            },
+        )
+        assert_true(status == HTTPStatus.BAD_REQUEST, "Expected release validation scenario failure to block")
+        assert_true(not scenario_blocking.get("success", True), "Expected scenario blocking failure")
+
+        status, metrics = request_json("GET", f"{base}/api/release-metrics")
+        assert_true(status == HTTPStatus.OK, "Expected /api/release-metrics success")
+        assert_true(metrics.get("success", False), "Expected release metrics success")
+        assert_true(metrics.get("scenario_pass_rate") is not None, "Expected scenario pass rate")
+
         StubUnrealHandler.delay_run_goal_sec = 1.0
         first_result: Dict[str, Any] = {}
 
@@ -351,6 +501,15 @@ def run() -> None:
 
         assert_true(AUDIT_LOG.exists(), "Expected audit log file")
         assert_true(AUDIT_LOG.read_text(encoding="utf-8").strip() != "", "Expected audit log to contain events")
+
+        status, traces = request_json("GET", f"{base}/api/debug/traces?limit=10")
+        assert_true(status == HTTPStatus.OK, "Expected /api/debug/traces to proxy")
+        assert_true(traces.get("success", False), "Expected debug traces success")
+        assert_true(int(traces.get("count", 0)) >= 1, "Expected at least one trace from stub")
+
+        status, cleared = request_json("POST", f"{base}/api/debug/clear", {})
+        assert_true(status == HTTPStatus.OK, "Expected /api/debug/clear to proxy")
+        assert_true(cleared.get("success", False), "Expected debug clear success")
 
         status, analyzed = request_json(
             "POST",

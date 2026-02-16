@@ -96,6 +96,46 @@
       .composer { display: grid; gap: 8px; margin-top: 10px; }
       .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
       .hidden { display: none; }
+      .tutorial {
+        margin-bottom: 14px;
+        background: linear-gradient(180deg, #162433, #0f1924);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 12px;
+      }
+      .tutorial h2 {
+        margin: 0 0 8px;
+        font-size: 15px;
+      }
+      .tutorial p {
+        margin: 0 0 8px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .tutorial ol {
+        margin: 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 6px;
+        font-size: 13px;
+      }
+      .tutorial code {
+        background: #0a0f15;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 1px 6px;
+      }
+      .debugOut {
+        min-height: 170px;
+        max-height: 320px;
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: #0a0f15;
+        padding: 8px;
+        font-size: 12px;
+        white-space: pre-wrap;
+      }
       @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
     </style>
   </head>
@@ -103,6 +143,21 @@
     <div class="wrap">
       <h1>Unreal Agent Chat</h1>
       <div class="sub">Natural language only. No terminal commands required for normal operation.</div>
+
+      <section class="tutorial">
+        <h2>How To Use This Tool</h2>
+        <p>Use this as the control panel for Unreal actions, strict Blueprint analysis, and debugging traces.</p>
+        <ol>
+          <li>In Unreal, keep your project open with the Unreal Agent plugin enabled, then click <code>Health</code> to confirm connection.</li>
+          <li>Set <code>Unreal Base URL</code> to your bridge (default <code>http://127.0.0.1:47777/unreal-agent/v1</code>) and click <code>Save</code>.</li>
+          <li>In <code>Chat</code>, type natural requests like “Create BP_EnemyScout, add BeginPlay print, compile.”</li>
+          <li>Use <code>Dry Run=true</code> to preview planned actions without mutating assets.</li>
+          <li>If mutations are blocked, click <code>Approve & Retry</code> to continue safely.</li>
+          <li>Use <code>Debug Traces</code> to inspect failures quickly. Filter by terms like <code>run-plan</code>, <code>ANALYSIS_CONTRADICTION</code>, or <code>compile_blueprint</code>.</li>
+          <li>Use <code>List Recipes</code> and <code>Release Metrics</code> to verify deterministic coverage and current pass-rate progress.</li>
+          <li>When analysis is requested, trust the deterministic result + evidence links over free-form model guesses.</li>
+        </ol>
+      </section>
 
       <div class="grid">
         <div class="stack">
@@ -144,6 +199,35 @@
                   <option value="true">true</option>
                 </select>
               </label>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Debug Traces</h2>
+            <div class="stack">
+              <div class="row-2">
+                <label>Limit <input id="debugLimit" value="50" /></label>
+                <label>Filter <input id="debugFilter" placeholder="run-plan / error code" /></label>
+              </div>
+              <div class="btns">
+                <button id="loadDebugTraces">Load Traces</button>
+                <button id="clearDebugTraces" class="warn">Clear Traces</button>
+                <button id="copyDebugTrace">Copy Latest</button>
+              </div>
+              <div id="debugStatus" class="status">No trace loaded</div>
+              <div id="debugOutput" class="debugOut">[]</div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Recipes And Metrics</h2>
+            <div class="stack">
+              <div class="btns">
+                <button id="loadRecipes">List Recipes</button>
+                <button id="loadReleaseMetrics">Release Metrics</button>
+              </div>
+              <div id="recipeStatus" class="status">No recipe data loaded</div>
+              <div id="recipeOutput" class="debugOut">[]</div>
             </div>
           </section>
         </div>
@@ -188,7 +272,12 @@
       const runStatus = document.getElementById("runStatus");
       const chatLog = document.getElementById("chatLog");
       const approveAndRetryBtn = document.getElementById("approveAndRetry");
+      const debugStatus = document.getElementById("debugStatus");
+      const debugOutput = document.getElementById("debugOutput");
+      const recipeStatus = document.getElementById("recipeStatus");
+      const recipeOutput = document.getElementById("recipeOutput");
       let lastPendingRequest = null;
+      let lastTracePayload = null;
 
       function setStatus(el, text, cls = "") {
         el.className = `status ${cls}`.trim();
@@ -280,6 +369,72 @@
         addMessage("system", "Editor state snapshot.", res.data);
       }
 
+      async function loadDebugTraces() {
+        const limit = encodeURIComponent((document.getElementById("debugLimit").value || "50").trim());
+        const filter = encodeURIComponent((document.getElementById("debugFilter").value || "").trim());
+        const q = filter ? `?limit=${limit}&filter=${filter}` : `?limit=${limit}`;
+        const res = await api(`/api/debug/traces${q}`);
+        if (!res.data.success) {
+          setStatus(debugStatus, res.data.message || "Failed to load traces", "err");
+          debugOutput.textContent = JSON.stringify(res.data, null, 2);
+          return;
+        }
+        lastTracePayload = res.data;
+        const count = Number(res.data.count || 0);
+        setStatus(debugStatus, `Loaded ${count} trace(s)`, "ok");
+        debugOutput.textContent = JSON.stringify(res.data.traces || [], null, 2);
+      }
+
+      async function clearDebugTraces() {
+        const res = await api("/api/debug/clear", "POST", {});
+        if (!res.data.success) {
+          setStatus(debugStatus, res.data.message || "Failed to clear traces", "err");
+          return;
+        }
+        lastTracePayload = null;
+        debugOutput.textContent = "[]";
+        setStatus(debugStatus, "Traces cleared", "ok");
+      }
+
+      async function copyLatestTrace() {
+        const traces = lastTracePayload && Array.isArray(lastTracePayload.traces) ? lastTracePayload.traces : [];
+        if (!traces.length) {
+          setStatus(debugStatus, "No traces to copy", "err");
+          return;
+        }
+        const latest = traces[0];
+        try {
+          await navigator.clipboard.writeText(JSON.stringify(latest, null, 2));
+          setStatus(debugStatus, "Latest trace copied", "ok");
+        } catch (err) {
+          setStatus(debugStatus, "Clipboard copy failed", "err");
+        }
+      }
+
+      async function loadRecipes() {
+        const res = await api("/api/recipes");
+        if (!res.data.success) {
+          setStatus(recipeStatus, res.data.message || "Failed to load recipes", "err");
+          recipeOutput.textContent = JSON.stringify(res.data, null, 2);
+          return;
+        }
+        const recipes = Array.isArray(res.data.recipes) ? res.data.recipes : [];
+        setStatus(recipeStatus, `Loaded ${recipes.length} recipe(s)`, "ok");
+        recipeOutput.textContent = JSON.stringify(recipes, null, 2);
+      }
+
+      async function loadReleaseMetrics() {
+        const res = await api("/api/release-metrics");
+        if (!res.data.success) {
+          setStatus(recipeStatus, res.data.message || "Failed to load metrics", "err");
+          recipeOutput.textContent = JSON.stringify(res.data, null, 2);
+          return;
+        }
+        const pass = typeof res.data.pass_rate === "number" ? `${(res.data.pass_rate * 100).toFixed(1)}%` : "n/a";
+        setStatus(recipeStatus, `Metrics loaded (pass ${pass})`, "ok");
+        recipeOutput.textContent = JSON.stringify(res.data, null, 2);
+      }
+
       async function sendChat(withApprovalToken = "") {
         try {
           const message = document.getElementById("chatInput").value.trim();
@@ -343,6 +498,11 @@
       document.getElementById("healthCheck").addEventListener("click", healthCheck);
       document.getElementById("loadInfo").addEventListener("click", loadInfo);
       document.getElementById("loadState").addEventListener("click", loadState);
+      document.getElementById("loadDebugTraces").addEventListener("click", loadDebugTraces);
+      document.getElementById("clearDebugTraces").addEventListener("click", clearDebugTraces);
+      document.getElementById("copyDebugTrace").addEventListener("click", copyLatestTrace);
+      document.getElementById("loadRecipes").addEventListener("click", loadRecipes);
+      document.getElementById("loadReleaseMetrics").addEventListener("click", loadReleaseMetrics);
       document.getElementById("sendChat").addEventListener("click", () => sendChat());
       document.getElementById("approveAndRetry").addEventListener("click", approveAndRetry);
       document.getElementById("clearChat").addEventListener("click", () => {

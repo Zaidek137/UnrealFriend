@@ -34,6 +34,7 @@ def main() -> int:
 
     subparsers.add_parser("health")
     subparsers.add_parser("actions")
+    subparsers.add_parser("recipes")
 
     execute = subparsers.add_parser("execute")
     execute.add_argument("--action", required=True)
@@ -61,6 +62,24 @@ def main() -> int:
         help="JSON object string for goal_context",
     )
 
+    run_recipe = subparsers.add_parser("run-recipe")
+    run_recipe.add_argument("--recipe-id", required=True)
+    run_recipe.add_argument("--inputs-json", default="{}")
+    run_recipe.add_argument("--dry-run", action="store_true")
+    run_recipe.add_argument("--no-stop-on-error", action="store_true")
+    run_recipe.add_argument("--profile", default="balanced")
+
+    validate_recipe = subparsers.add_parser("validate-recipe")
+    validate_recipe.add_argument("--recipe-id", required=True)
+    validate_recipe.add_argument("--inputs-json", default="{}")
+    validate_recipe.add_argument("--profile", default="balanced")
+
+    run_scenario = subparsers.add_parser("run-scenario")
+    run_scenario.add_argument("--assertions-json", required=True, help="JSON array of assertion objects")
+    run_scenario.add_argument("--dry-run", action="store_true")
+    run_scenario.add_argument("--profile", default="balanced")
+    run_scenario.add_argument("--release-validation", action="store_true")
+
     args = parser.parse_args()
     base = f"http://127.0.0.1:{args.port}/unreal-agent/v1"
 
@@ -68,6 +87,8 @@ def main() -> int:
         response = request_json("GET", f"{base}/health")
     elif args.command == "actions":
         response = request_json("GET", f"{base}/actions")
+    elif args.command == "recipes":
+        response = request_json("GET", f"{base}/recipes")
     elif args.command == "run-plan":
         try:
             plan = json.loads(args.plan_json)
@@ -99,6 +120,60 @@ def main() -> int:
                 "dry_run": args.dry_run,
                 "stop_on_error": not args.no_stop_on_error,
                 "goal_context": context,
+            },
+        )
+    elif args.command == "run-recipe":
+        try:
+            inputs = json.loads(args.inputs_json)
+            if not isinstance(inputs, dict):
+                raise ValueError("inputs must be a JSON object")
+        except Exception as exc:  # noqa: BLE001
+            print(json.dumps({"success": False, "message": str(exc)}))
+            return 2
+        response = request_json(
+            "POST",
+            f"{base}/run-recipe",
+            {
+                "recipe_id": args.recipe_id,
+                "inputs": inputs,
+                "dry_run": args.dry_run,
+                "stop_on_error": not args.no_stop_on_error,
+                "profile": args.profile,
+            },
+        )
+    elif args.command == "validate-recipe":
+        try:
+            inputs = json.loads(args.inputs_json)
+            if not isinstance(inputs, dict):
+                raise ValueError("inputs must be a JSON object")
+        except Exception as exc:  # noqa: BLE001
+            print(json.dumps({"success": False, "message": str(exc)}))
+            return 2
+        response = request_json(
+            "POST",
+            f"{base}/validate-recipe",
+            {
+                "recipe_id": args.recipe_id,
+                "inputs": inputs,
+                "profile": args.profile,
+            },
+        )
+    elif args.command == "run-scenario":
+        try:
+            assertions = json.loads(args.assertions_json)
+            if not isinstance(assertions, list):
+                raise ValueError("assertions must be a JSON array")
+        except Exception as exc:  # noqa: BLE001
+            print(json.dumps({"success": False, "message": str(exc)}))
+            return 2
+        response = request_json(
+            "POST",
+            f"{base}/run-scenario",
+            {
+                "assertions": assertions,
+                "dry_run": args.dry_run,
+                "profile": args.profile,
+                "release_validation": args.release_validation,
             },
         )
     else:

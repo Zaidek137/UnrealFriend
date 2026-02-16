@@ -5,7 +5,6 @@
 #include "Dom/JsonObject.h"
 #include "Engine/Blueprint.h"
 #include "Factories/BlueprintFactory.h"
-#include "GameFramework/Actor.h"
 #include "Misc/PackageName.h"
 #include "Modules/ModuleManager.h"
 #include "ObjectTools.h"
@@ -57,7 +56,7 @@ FAgentActionResult FCreateBlueprintAction::Execute(const FAgentActionRequest& Re
         return {false, TEXT("package_path is not a valid Unreal package path."), TEXT("")};
     }
 
-    UClass* ParentClass = AActor::StaticClass();
+    UClass* ParentClass = UObject::StaticClass();
     if (!ParentClassPath.IsEmpty())
     {
         UClass* LoadedClass = FindObject<UClass>(nullptr, *ParentClassPath);
@@ -72,11 +71,6 @@ FAgentActionResult FCreateBlueprintAction::Execute(const FAgentActionRequest& Re
         }
 
         ParentClass = LoadedClass;
-    }
-
-    if (!ParentClass->IsChildOf(AActor::StaticClass()))
-    {
-        return {false, TEXT("parent_class must inherit from Actor for this action."), TEXT("")};
     }
 
     if (Request.bDryRun)

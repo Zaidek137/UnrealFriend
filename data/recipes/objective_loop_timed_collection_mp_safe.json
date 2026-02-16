@@ -1,0 +1,31 @@
+{
+  "recipe_id": "objective_loop_timed_collection_mp_safe",
+  "version": "1.0.0",
+  "description": "Build a timed objective collection loop with multiplayer-safe scaffolding.",
+  "inputs": [
+    {"name": "namespace_root", "type": "string", "required": false, "default": "/Game/AgentGenerated"},
+    {"name": "controller_asset_name", "type": "string", "required": false, "default": "BP_AgentObjectiveController"},
+    {"name": "widget_asset_name", "type": "string", "required": false, "default": "WBP_AgentObjectiveHUD"},
+    {"name": "objective_count", "type": "integer", "required": false, "default": 6},
+    {"name": "objective_base_location", "type": "vector3", "required": false, "default": [0, 0, 80]}
+  ],
+  "steps": [
+    {"id": "create_controller", "action": "create_blueprint"},
+    {"id": "wire_progress", "action": "wire_objective_progress"},
+    {"id": "create_score", "action": "create_score_system"},
+    {"id": "create_timer", "action": "create_timer_system"},
+    {"id": "create_game_mode_logic", "action": "create_game_mode_logic"},
+    {"id": "create_hud_widget", "action": "create_widget_blueprint"},
+    {"id": "create_objective_N", "action": "create_objective_actor"}
+  ],
+  "post_validations": [
+    {"kind": "compile_blueprint", "target": "controller"},
+    {"kind": "mp_safety_check", "rule": "authority_safe_template"},
+    {"kind": "run_pie_scenario", "assertions": ["objective_count_reachable", "timer_present"]}
+  ],
+  "outputs": [
+    "controller_blueprint_path",
+    "hud_widget_path",
+    "objective_actor_count"
+  ]
+}

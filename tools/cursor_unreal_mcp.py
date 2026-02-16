@@ -15,6 +15,7 @@ import sys
 import time
 import traceback
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -183,6 +184,75 @@ def call_execute_action(args: Dict[str, Any]) -> Dict[str, Any]:
     return mcp_content(to_text(result))
 
 
+def call_run_recipe(args: Dict[str, Any]) -> Dict[str, Any]:
+    ensure_web_available()
+    recipe_id = str(args.get("recipe_id", "")).strip()
+    if not recipe_id:
+        return mcp_error_content("Missing required argument: recipe_id")
+    inputs = args.get("inputs", {})
+    if not isinstance(inputs, dict):
+        return mcp_error_content("inputs must be an object")
+
+    payload = {
+        "recipe_id": recipe_id,
+        "inputs": inputs,
+        "dry_run": bool(args.get("dry_run", False)),
+        "stop_on_error": bool(args.get("stop_on_error", True)),
+        "profile": str(args.get("profile", "balanced")).strip() or "balanced",
+    }
+    status, result = request_json("POST", "/api/run-recipe", payload)
+    if result.get("error_code") == "APPROVAL_REQUIRED" and AUTO_APPROVE:
+        token = str(result.get("approval_token", "")).strip()
+        if token:
+            approve_status, approve_result = request_json("POST", "/api/approve", {"approval_token": token})
+            if approve_status < 400 and approve_result.get("success", False):
+                payload["approval_token"] = token
+                status, result = request_json("POST", "/api/run-recipe", payload)
+            else:
+                return mcp_error_content("Approval failed during auto-approve", {"approval": approve_result, "initial": result})
+    if status >= 400 and not result.get("success", False):
+        return mcp_error_content("unreal_run_recipe failed", {"http_status": status, "response": result})
+    return mcp_content(to_text(result))
+
+
+def call_validate_recipe(args: Dict[str, Any]) -> Dict[str, Any]:
+    ensure_web_available()
+    recipe_id = str(args.get("recipe_id", "")).strip()
+    if not recipe_id:
+        return mcp_error_content("Missing required argument: recipe_id")
+    inputs = args.get("inputs", {})
+    if not isinstance(inputs, dict):
+        return mcp_error_content("inputs must be an object")
+    payload = {
+        "recipe_id": recipe_id,
+        "inputs": inputs,
+        "stop_on_error": bool(args.get("stop_on_error", True)),
+        "profile": str(args.get("profile", "balanced")).strip() or "balanced",
+        "release_validation": bool(args.get("release_validation", True)),
+    }
+    status, result = request_json("POST", "/api/validate-recipe", payload)
+    if status >= 400 and not result.get("success", False):
+        return mcp_error_content("unreal_validate_recipe failed", {"http_status": status, "response": result})
+    return mcp_content(to_text(result))
+
+
+def call_run_scenario(args: Dict[str, Any]) -> Dict[str, Any]:
+    ensure_web_available()
+    assertions = args.get("assertions", [])
+    if not isinstance(assertions, list) or len(assertions) == 0:
+        return mcp_error_content("assertions must be a non-empty array")
+    payload = {
+        "assertions": assertions,
+        "dry_run": bool(args.get("dry_run", False)),
+        "profile": str(args.get("profile", "balanced")).strip() or "balanced",
+        "release_validation": bool(args.get("release_validation", False)),
+    }
+    status, result = request_json("POST", "/api/run-scenario", payload)
+    if status >= 400 and not result.get("success", False):
+        return mcp_error_content("unreal_run_scenario failed", {"http_status": status, "response": result})
+    return mcp_content(to_text(result))
+
+
 TOOLS = [
     {
         "name": "unreal_chat",
@@ -227,6 +297,61 @@ TOOLS = [
                 "dry_run": {"type": "boolean", "default": False},
             },
             "required": ["action"],
+        },
+    },
+    {
+        "name": "unreal_run_recipe",
+        "description": "Run a deterministic Unreal recipe by id.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "recipe_id": {"type": "string"},
+                "inputs": {"type": "object"},
+                "dry_run": {"type": "boolean", "default": False},
+                "stop_on_error": {"type": "boolean", "default": True},
+                "profile": {"type": "string", "default": "balanced"},
+            },
+            "required": ["recipe_id"],
+        },
+    },
+    {
+        "name": "unreal_validate_recipe",
+        "description": "Validate recipe execution (compile/assert checks only).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "recipe_id": {"type": "string"},
+                "inputs": {"type": "object"},
+                "stop_on_error": {"type": "boolean", "default": True},
+                "profile": {"type": "string", "default": "balanced"},
+                "release_validation": {"type": "boolean", "default": True},
+            },
+            "required": ["recipe_id"],
+        },
+    },
+    {
+        "name": "unreal_run_scenario",
+        "description": "Run PIE scenario assertions through the shared web contract.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "assertions": {"type": "array", "items": {"type": "object"}},
+                "dry_run": {"type": "boolean", "default": False},
+                "profile": {"type": "string", "default": "balanced"},
+                "release_validation": {"type": "boolean", "default": False},
+            },
+            "required": ["assertions"],
+        },
+    },
+    {
+        "name": "unreal_debug_traces",
+        "description": "Get recent Unreal plugin debug traces via web proxy.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "default": 50},
+                "filter": {"type": "string"},
+            },
         },
     },
 ]
@@ -302,6 +427,23 @@ class StdioJsonRpcServer:
             return
         if name == "unreal_execute_action":
             self._respond(msg_id, call_execute_action(args))
+            return
+        if name == "unreal_run_recipe":
+            self._respond(msg_id, call_run_recipe(args))
+            return
+        if name == "unreal_validate_recipe":
+            self._respond(msg_id, call_validate_recipe(args))
+            return
+        if name == "unreal_run_scenario":
+            self._respond(msg_id, call_run_scenario(args))
+            return
+        if name == "unreal_debug_traces":
+            limit = int(args.get("limit", 50))
+            flt = str(args.get("filter", "")).strip()
+            query = f"?limit={limit}"
+            if flt:
+                query += f"&filter={urllib.parse.quote(flt)}"
+            self._respond(msg_id, call_endpoint(f"/api/debug/traces{query}"))
             return
 
         self._respond(msg_id, mcp_error_content(f"Unknown tool: {name}"))

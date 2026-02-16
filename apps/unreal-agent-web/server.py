@@ -21,14 +21,17 @@ ROOT_DIR = APP_DIR.parent.parent
 STATIC_DIR = APP_DIR / "static"
 DATA_DIR = APP_DIR / ".data"
 ANALYSIS_RUNS_DIR = DATA_DIR / "analysis-runs"
+RECIPES_DIR = ROOT_DIR / "data" / "recipes"
 SETTINGS_PATH = DATA_DIR / "settings.json"
 APPROVALS_PATH = DATA_DIR / "approvals.json"
 AUDIT_LOG_PATH = DATA_DIR / "audit.log.jsonl"
+RELEASE_METRICS_PATH = DATA_DIR / "release_metrics.json"
 NODE_LIBRARY_INDEX_PATH = ROOT_DIR / "data" / "blueprint-node-library" / "node_library_index.json"
 
 RUN_LOCK = threading.Lock()
 APPROVALS_LOCK = threading.Lock()
 AUDIT_LOCK = threading.Lock()
+RELEASE_METRICS_LOCK = threading.Lock()
 
 MUTATING_ACTIONS = {
     "create_blueprint",
@@ -57,6 +60,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "analysis_disallow_speculative": True,
     "analysis_store_artifacts": True,
     "analysis_max_saved_runs": 200,
+    "execution_profile": "balanced",
 }
 
 
@@ -1056,6 +1060,345 @@ def check_requires_approval(
     )
 
 
+def load_recipe_definitions() -> List[Dict[str, Any]]:
+    recipes: List[Dict[str, Any]] = []
+    if not RECIPES_DIR.exists():
+        return recipes
+    for path in sorted(RECIPES_DIR.glob("*.json")):
+        parsed = load_json_file(path, {})
+        if not isinstance(parsed, dict):
+            continue
+        recipe_id = str(parsed.get("recipe_id", "")).strip()
+        version = str(parsed.get("version", "")).strip()
+        if not recipe_id or not version:
+            continue
+        item = dict(parsed)
+        item["source_file"] = str(path)
+        recipes.append(item)
+    return recipes
+
+
+def get_recipe_definition(recipe_id: str) -> Optional[Dict[str, Any]]:
+    recipe_id = recipe_id.strip()
+    if not recipe_id:
+        return None
+    for recipe in load_recipe_definitions():
+        if str(recipe.get("recipe_id", "")).strip() == recipe_id:
+            return recipe
+    return None
+
+
+def infer_recipe_id_from_message(message: str) -> Optional[str]:
+    text = message.lower().strip()
+    if not text:
+        return None
+
+    if "objective_loop_basic_sp" in text:
+        return "objective_loop_basic_sp"
+    if "objective_loop_basic_mp_safe" in text:
+        return "objective_loop_basic_mp_safe"
+    if "objective_loop_timed_collection_sp" in text:
+        return "objective_loop_timed_collection_sp"
+    if "objective_loop_timed_collection_mp_safe" in text:
+        return "objective_loop_timed_collection_mp_safe"
+    if "world_city_block_layout" in text:
+        return "world_city_block_layout"
+    if "world_jump_line_layout" in text:
+        return "world_jump_line_layout"
+    if "asset_import_materialize_pack" in text:
+        return "asset_import_materialize_pack"
+
+    wants_mp = any(k in text for k in ["multiplayer", "mp", "replication", "authority", "network"])
+    if any(k in text for k in ["timed", "timer"]) and any(k in text for k in ["objective", "collect", "capture"]):
+        return "objective_loop_timed_collection_mp_safe" if wants_mp else "objective_loop_timed_collection_sp"
+    if any(k in text for k in ["objective", "collect", "capture"]) and any(k in text for k in ["loop", "gameplay", "mode"]):
+        return "objective_loop_basic_mp_safe" if wants_mp else "objective_loop_basic_sp"
+    if any(k in text for k in ["city", "block", "layout", "street", "environment"]):
+        return "world_city_block_layout"
+    if any(k in text for k in ["jump line", "parkour", "traversal lane", "platform line"]):
+        return "world_jump_line_layout"
+    if any(k in text for k in ["import assets", "materialize", "asset pack", "data asset"]):
+        return "asset_import_materialize_pack"
+    return None
+
+
+def apply_recipe_defaults(recipe_def: Dict[str, Any], inputs: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(inputs)
+    recipe_inputs = recipe_def.get("inputs", [])
+    if not isinstance(recipe_inputs, list):
+        return merged
+    for item in recipe_inputs:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        if not name or name in merged:
+            continue
+        if "default" in item:
+            merged[name] = item["default"]
+    return merged
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def validate_recipe_inputs(recipe_def: Dict[str, Any], inputs: Dict[str, Any]) -> Dict[str, Any]:
+    errors: List[str] = []
+    warnings: List[str] = []
+    allowed_names: set[str] = set()
+
+    recipe_inputs = recipe_def.get("inputs", [])
+    if not isinstance(recipe_inputs, list):
+        return {"ok": True, "errors": [], "warnings": ["Recipe has no typed input schema."]}
+
+    for item in recipe_inputs:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        input_type = str(item.get("type", "")).strip().lower()
+        required = bool(item.get("required", False))
+        if not name:
+            continue
+        allowed_names.add(name)
+        if required and name not in inputs:
+            errors.append(f"Missing required input: {name}")
+            continue
+        if name not in inputs:
+            continue
+        value = inputs[name]
+        if input_type == "string" and not isinstance(value, str):
+            errors.append(f"Input '{name}' must be a string.")
+        elif input_type == "integer" and not (isinstance(value, int) and not isinstance(value, bool)):
+            errors.append(f"Input '{name}' must be an integer.")
+        elif input_type == "number" and not _is_number(value):
+            errors.append(f"Input '{name}' must be numeric.")
+        elif input_type == "vector3":
+            if not isinstance(value, list) or len(value) != 3 or not all(_is_number(v) for v in value):
+                errors.append(f"Input '{name}' must be [x,y,z] numeric array.")
+        elif input_type == "boolean" and not isinstance(value, bool):
+            errors.append(f"Input '{name}' must be boolean.")
+
+    for name in inputs.keys():
+        if name not in allowed_names:
+            warnings.append(f"Input '{name}' is not part of the recipe schema and may be ignored.")
+
+    return {"ok": len(errors) == 0, "errors": errors, "warnings": warnings}
+
+
+def complete_recipe_inputs_with_llm(
+    settings: Dict[str, Any],
+    message: str,
+    recipe_def: Dict[str, Any],
+    existing_inputs: Dict[str, Any],
+) -> Dict[str, Any]:
+    llm_enabled = bool(settings.get("llm_enabled", False))
+    llm_api_key = str(settings.get("llm_api_key", "")).strip()
+    llm_base_url = str(settings.get("llm_base_url", "")).rstrip("/")
+    llm_model = str(settings.get("llm_model", "")).strip()
+    if not llm_enabled or not llm_base_url or not llm_model:
+        return existing_inputs
+
+    schema_inputs = recipe_def.get("inputs", [])
+    if not isinstance(schema_inputs, list) or len(schema_inputs) == 0:
+        return existing_inputs
+
+    schema_payload = [
+        {
+            "name": str(item.get("name", "")).strip(),
+            "type": str(item.get("type", "")).strip(),
+            "required": bool(item.get("required", False)),
+            "default": item.get("default"),
+        }
+        for item in schema_inputs
+        if isinstance(item, dict)
+    ]
+
+    system_prompt = (
+        "You complete structured recipe inputs for Unreal automation. "
+        "Return only a JSON object containing recipe inputs. "
+        "Do not include keys outside the provided schema."
+    )
+    user_prompt = (
+        f"Natural language request: {message}\n"
+        f"Recipe: {json.dumps({'recipe_id': recipe_def.get('recipe_id', ''), 'inputs': schema_payload}, indent=2)}\n"
+        f"Current inputs: {json.dumps(existing_inputs, indent=2)}\n"
+        "Fill missing values conservatively. Prefer recipe defaults when ambiguous."
+    )
+    body = {
+        "model": llm_model,
+        "temperature": float(settings.get("llm_temperature", 0.1)),
+        "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+    }
+    headers: Dict[str, str] = {}
+    if llm_api_key:
+        headers["Authorization"] = f"Bearer {llm_api_key}"
+
+    result = request_json("POST", f"{llm_base_url}/chat/completions", payload=body, headers=headers, timeout_sec=60)
+    if result.status_code >= 400:
+        return existing_inputs
+
+    choices = result.payload.get("choices", [])
+    if not choices:
+        return existing_inputs
+    content = choices[0].get("message", {}).get("content", "")
+    if not isinstance(content, str):
+        return existing_inputs
+    try:
+        parsed = extract_first_json_object(content)
+    except Exception:
+        return existing_inputs
+    if not isinstance(parsed, dict):
+        return existing_inputs
+
+    allowed = {str(item.get("name", "")).strip() for item in schema_inputs if isinstance(item, dict)}
+    merged = dict(existing_inputs)
+    for key, value in parsed.items():
+        if key in allowed and key not in merged:
+            merged[key] = value
+    return merged
+
+
+def default_release_metrics() -> Dict[str, Any]:
+    return {
+        "updated_at": time.time(),
+        "totals": {
+            "recipe_runs": 0,
+            "recipe_validations": 0,
+            "scenario_runs": 0,
+        },
+        "success": {
+            "recipe_runs": 0,
+            "recipe_validations": 0,
+            "scenario_runs": 0,
+        },
+        "compile_failures": 0,
+        "contradiction_count": 0,
+        "mp_safety_failures": 0,
+        "scenario_failures": 0,
+        "error_codes": {},
+        "runs": [],
+    }
+
+
+def load_release_metrics() -> Dict[str, Any]:
+    ensure_data_dir()
+    data = load_json_file(RELEASE_METRICS_PATH, {})
+    base = default_release_metrics()
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if key in {"totals", "success", "error_codes"} and isinstance(value, dict):
+                base[key].update(value)
+            elif key == "runs" and isinstance(value, list):
+                base["runs"] = value
+            elif key in base:
+                base[key] = value
+    return base
+
+
+def save_release_metrics(metrics: Dict[str, Any]) -> None:
+    ensure_data_dir()
+    save_json_file(RELEASE_METRICS_PATH, metrics)
+
+
+def collect_error_codes_from_payload(obj: Any) -> List[str]:
+    out: List[str] = []
+    if isinstance(obj, dict):
+        code = str(obj.get("error_code", "")).strip()
+        if code:
+            out.append(code)
+        for value in obj.values():
+            out.extend(collect_error_codes_from_payload(value))
+    elif isinstance(obj, list):
+        for item in obj:
+            out.extend(collect_error_codes_from_payload(item))
+    return out
+
+
+def update_release_metrics(
+    run_kind: str,
+    run_success: bool,
+    http_status: int,
+    response_payload: Dict[str, Any],
+    profile: str,
+    release_validation: bool,
+) -> Dict[str, Any]:
+    with RELEASE_METRICS_LOCK:
+        metrics = load_release_metrics()
+        if run_kind not in metrics["totals"]:
+            metrics["totals"][run_kind] = 0
+            metrics["success"][run_kind] = 0
+        metrics["totals"][run_kind] = int(metrics["totals"].get(run_kind, 0)) + 1
+        if run_success:
+            metrics["success"][run_kind] = int(metrics["success"].get(run_kind, 0)) + 1
+
+        error_codes = collect_error_codes_from_payload(response_payload)
+        for code in error_codes:
+            metrics["error_codes"][code] = int(metrics["error_codes"].get(code, 0)) + 1
+        if "COMPILE_FAILED" in error_codes:
+            metrics["compile_failures"] = int(metrics.get("compile_failures", 0)) + 1
+        if "ANALYSIS_CONTRADICTION" in error_codes:
+            metrics["contradiction_count"] = int(metrics.get("contradiction_count", 0)) + 1
+        if "MP_SAFETY_FAILED" in error_codes:
+            metrics["mp_safety_failures"] = int(metrics.get("mp_safety_failures", 0)) + 1
+        if run_kind == "scenario_runs" and not run_success:
+            metrics["scenario_failures"] = int(metrics.get("scenario_failures", 0)) + 1
+
+        run_record = {
+            "timestamp": time.time(),
+            "kind": run_kind,
+            "success": run_success,
+            "http_status": int(http_status),
+            "profile": profile,
+            "release_validation": release_validation,
+            "error_codes": sorted(list(set(error_codes))),
+        }
+        metrics["runs"].append(run_record)
+        metrics["runs"] = metrics["runs"][-500:]
+        metrics["updated_at"] = time.time()
+        save_release_metrics(metrics)
+        return metrics
+
+
+def build_release_metrics_summary(metrics: Dict[str, Any]) -> Dict[str, Any]:
+    totals = metrics.get("totals", {})
+    success = metrics.get("success", {})
+    recipe_total = int(totals.get("recipe_runs", 0)) + int(totals.get("recipe_validations", 0))
+    scenario_total = int(totals.get("scenario_runs", 0))
+    all_total = recipe_total + scenario_total
+    all_success = int(success.get("recipe_runs", 0)) + int(success.get("recipe_validations", 0)) + int(success.get("scenario_runs", 0))
+
+    compile_failures = int(metrics.get("compile_failures", 0))
+    contradiction_count = int(metrics.get("contradiction_count", 0))
+    scenario_success = int(success.get("scenario_runs", 0))
+
+    top_error_codes = sorted(
+        [
+            {"error_code": code, "count": int(count)}
+            for code, count in metrics.get("error_codes", {}).items()
+            if int(count) > 0
+        ],
+        key=lambda item: item["count"],
+        reverse=True,
+    )[:10]
+
+    return {
+        "success": True,
+        "updated_at": metrics.get("updated_at", 0),
+        "pass_rate": (float(all_success) / float(all_total)) if all_total > 0 else None,
+        "scenario_pass_rate": (float(scenario_success) / float(scenario_total)) if scenario_total > 0 else None,
+        "compile_failure_rate": (float(compile_failures) / float(all_total)) if all_total > 0 else None,
+        "contradiction_rate": (float(contradiction_count) / float(all_total)) if all_total > 0 else None,
+        "totals": totals,
+        "success_counts": success,
+        "compile_failures": compile_failures,
+        "contradiction_count": contradiction_count,
+        "mp_safety_failures": int(metrics.get("mp_safety_failures", 0)),
+        "scenario_failures": int(metrics.get("scenario_failures", 0)),
+        "top_error_codes": top_error_codes,
+        "release_metrics_file": str(RELEASE_METRICS_PATH),
+    }
+
+
 class RequestHandler(BaseHTTPRequestHandler):
     server_version = "UnrealAgentWeb/0.2"
 
@@ -1149,6 +1492,58 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/actions":
                 result = call_unreal(settings, "GET", "/actions")
+                self._json_response(result.status_code, result.payload)
+                return
+            if path == "/api/recipes":
+                local_recipes = load_recipe_definitions()
+                upstream = call_unreal(settings, "GET", "/recipes")
+                if upstream.status_code >= 400 and len(local_recipes) == 0:
+                    self._json_response(upstream.status_code, upstream.payload)
+                    return
+
+                upstream_recipes = []
+                if isinstance(upstream.payload, dict):
+                    candidate = upstream.payload.get("recipes", [])
+                    if isinstance(candidate, list):
+                        upstream_recipes = [item for item in candidate if isinstance(item, dict)]
+
+                if len(local_recipes) > 0:
+                    upstream_by_id = {
+                        str(item.get("recipe_id", "")).strip(): item
+                        for item in upstream_recipes
+                        if isinstance(item, dict) and str(item.get("recipe_id", "")).strip()
+                    }
+                    merged_recipes = []
+                    for recipe in local_recipes:
+                        rid = str(recipe.get("recipe_id", "")).strip()
+                        merged = dict(recipe)
+                        if rid in upstream_by_id:
+                            merged["upstream"] = upstream_by_id[rid]
+                        merged_recipes.append(merged)
+                else:
+                    merged_recipes = upstream_recipes
+
+                self._json_response(
+                    HTTPStatus.OK,
+                    {
+                        "success": True,
+                        "recipes": merged_recipes,
+                        "local_recipe_count": len(local_recipes),
+                        "upstream_recipe_count": len(upstream_recipes),
+                    },
+                )
+                return
+            if path == "/api/release-metrics":
+                summary = build_release_metrics_summary(load_release_metrics())
+                self._json_response(HTTPStatus.OK, summary)
+                return
+            if path == "/api/debug/traces":
+                limit = str(query.get("limit", ["50"])[0]).strip()
+                flt = str(query.get("filter", [""])[0]).strip()
+                qp = f"?limit={urllib.parse.quote(limit)}"
+                if flt:
+                    qp += f"&filter={urllib.parse.quote(flt)}"
+                result = call_unreal(settings, "GET", f"/debug/traces{qp}")
                 self._json_response(result.status_code, result.payload)
                 return
             if path == "/api/node-library":
@@ -1279,11 +1674,262 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self._json_response(HTTPStatus.OK, {"success": True, "approval": approved})
                 return
 
+            if path == "/api/debug/clear":
+                result = call_unreal(settings, "POST", "/debug/clear", payload={})
+                self._json_response(result.status_code, result.payload)
+                return
+
             compatibility = check_compatibility(settings)
             if not compatibility.get("ok", False):
                 self._json_response(
                     HTTPStatus.PRECONDITION_FAILED,
                     make_error("VERSION_INCOMPATIBLE", "Unreal plugin/API compatibility check failed.", compatibility=compatibility),
+                )
+                return
+
+            if path == "/api/run-recipe":
+                recipe_id = str(body.get("recipe_id", "")).strip()
+                if not recipe_id:
+                    self._json_response(HTTPStatus.BAD_REQUEST, make_error("MISSING_FIELD", "recipe_id is required."))
+                    return
+                inputs = body.get("inputs", {})
+                if not isinstance(inputs, dict):
+                    self._json_response(HTTPStatus.BAD_REQUEST, make_error("INVALID_PAYLOAD", "inputs must be an object."))
+                    return
+
+                dry_run = bool(body.get("dry_run", False))
+                stop_on_error = bool(body.get("stop_on_error", True))
+                profile = str(body.get("profile", settings.get("execution_profile", "balanced"))).strip().lower() or "balanced"
+                approval_token = str(body.get("approval_token", "")).strip()
+                release_validation = bool(body.get("release_validation", False))
+
+                recipe_def = get_recipe_definition(recipe_id)
+                validation = {"ok": True, "errors": [], "warnings": []}
+                resolved_inputs = dict(inputs)
+                if recipe_def is not None:
+                    resolved_inputs = apply_recipe_defaults(recipe_def, resolved_inputs)
+                    validation = validate_recipe_inputs(recipe_def, resolved_inputs)
+                    if not validation.get("ok", False):
+                        self._json_response(
+                            HTTPStatus.BAD_REQUEST,
+                            make_error(
+                                "RECIPE_INPUT_VALIDATION_FAILED",
+                                "Recipe input validation failed.",
+                                recipe_id=recipe_id,
+                                validation=validation,
+                            ),
+                        )
+                        return
+
+                risky = []
+                if recipe_def is not None:
+                    recipe_actions = [
+                        str(step.get("action", "")).strip()
+                        for step in recipe_def.get("steps", [])
+                        if isinstance(step, dict)
+                    ]
+                    risky = sorted(list(set(recipe_actions).intersection(set(settings.get("risky_actions", [])))))
+                if len(risky) == 0 and not dry_run:
+                    risky = list(settings.get("risky_actions", []))
+
+                approval_result = check_requires_approval(
+                    settings=settings,
+                    operation="run-recipe",
+                    risky_actions=risky,
+                    dry_run=dry_run,
+                    approval_token=approval_token,
+                    request_payload=body,
+                )
+                if approval_result:
+                    self._json_response(HTTPStatus.ACCEPTED, approval_result)
+                    return
+
+                request_payload = {
+                    "recipe_id": recipe_id,
+                    "inputs": resolved_inputs,
+                    "dry_run": dry_run,
+                    "stop_on_error": stop_on_error,
+                    "profile": profile,
+                }
+
+                def run_recipe():
+                    result = call_unreal(settings, "POST", "/run-recipe", request_payload)
+                    return result.status_code, result.payload
+
+                status, response = self._with_run_lock(run_recipe)
+                issues = collect_analysis_contradictions(response)
+                if issues:
+                    status = HTTPStatus.CONFLICT
+                    response = make_error(
+                        "ANALYSIS_CONTRADICTION",
+                        "Recipe execution reported analysis contradictions.",
+                        issues=issues,
+                        upstream=response,
+                    )
+
+                run_success = bool(response.get("success", False))
+                response["recipe_id"] = recipe_id
+                response["profile"] = profile
+                response["resolved_inputs"] = resolved_inputs
+                response["input_validation"] = validation
+
+                update_release_metrics(
+                    run_kind="recipe_runs",
+                    run_success=run_success,
+                    http_status=int(status),
+                    response_payload=response,
+                    profile=profile,
+                    release_validation=release_validation,
+                )
+                self._json_response(status, response)
+                log_event(
+                    "run_recipe",
+                    {
+                        "request_id": request_id,
+                        "recipe_id": recipe_id,
+                        "dry_run": dry_run,
+                        "profile": profile,
+                        "status": int(status),
+                        "duration_ms": int((time.time() - started) * 1000),
+                    },
+                )
+                return
+
+            if path == "/api/validate-recipe":
+                recipe_id = str(body.get("recipe_id", "")).strip()
+                if not recipe_id:
+                    self._json_response(HTTPStatus.BAD_REQUEST, make_error("MISSING_FIELD", "recipe_id is required."))
+                    return
+                inputs = body.get("inputs", {})
+                if not isinstance(inputs, dict):
+                    self._json_response(HTTPStatus.BAD_REQUEST, make_error("INVALID_PAYLOAD", "inputs must be an object."))
+                    return
+
+                profile = str(body.get("profile", settings.get("execution_profile", "balanced"))).strip().lower() or "balanced"
+                release_validation = bool(body.get("release_validation", True))
+                recipe_def = get_recipe_definition(recipe_id)
+                validation = {"ok": True, "errors": [], "warnings": []}
+                resolved_inputs = dict(inputs)
+                if recipe_def is not None:
+                    resolved_inputs = apply_recipe_defaults(recipe_def, resolved_inputs)
+                    validation = validate_recipe_inputs(recipe_def, resolved_inputs)
+                    if not validation.get("ok", False):
+                        self._json_response(
+                            HTTPStatus.BAD_REQUEST,
+                            make_error(
+                                "RECIPE_INPUT_VALIDATION_FAILED",
+                                "Recipe input validation failed.",
+                                recipe_id=recipe_id,
+                                validation=validation,
+                            ),
+                        )
+                        return
+
+                request_payload = {
+                    "recipe_id": recipe_id,
+                    "inputs": resolved_inputs,
+                    "dry_run": True,
+                    "stop_on_error": bool(body.get("stop_on_error", True)),
+                    "profile": profile,
+                }
+
+                def validate_recipe():
+                    result = call_unreal(settings, "POST", "/validate-recipe", request_payload)
+                    return result.status_code, result.payload
+
+                status, response = self._with_run_lock(validate_recipe)
+                response["recipe_id"] = recipe_id
+                response["profile"] = profile
+                response["validation_only"] = True
+                response["resolved_inputs"] = resolved_inputs
+                response["input_validation"] = validation
+
+                error_codes = set(collect_error_codes_from_payload(response))
+                run_success = bool(response.get("success", False))
+                if "COMPILE_FAILED" in error_codes:
+                    status = HTTPStatus.CONFLICT
+
+                update_release_metrics(
+                    run_kind="recipe_validations",
+                    run_success=run_success,
+                    http_status=int(status),
+                    response_payload=response,
+                    profile=profile,
+                    release_validation=release_validation,
+                )
+                self._json_response(status, response)
+                log_event(
+                    "validate_recipe",
+                    {
+                        "request_id": request_id,
+                        "recipe_id": recipe_id,
+                        "profile": profile,
+                        "status": int(status),
+                        "duration_ms": int((time.time() - started) * 1000),
+                    },
+                )
+                return
+
+            if path == "/api/run-scenario":
+                assertions = body.get("assertions", [])
+                if not isinstance(assertions, list) or len(assertions) == 0:
+                    self._json_response(HTTPStatus.BAD_REQUEST, make_error("MISSING_FIELD", "assertions[] is required."))
+                    return
+
+                dry_run = bool(body.get("dry_run", False))
+                profile = str(body.get("profile", settings.get("execution_profile", "balanced"))).strip().lower() or "balanced"
+                release_validation = bool(body.get("release_validation", False))
+
+                request_payload = {
+                    "assertions": assertions,
+                    "dry_run": dry_run,
+                    "profile": profile,
+                    "mode": str(body.get("mode", "scenario")).strip() or "scenario",
+                }
+
+                def run_scenario():
+                    result = call_unreal(settings, "POST", "/run-scenario", request_payload)
+                    return result.status_code, result.payload
+
+                status, response = self._with_run_lock(run_scenario)
+                scenario_success = bool(response.get("success", False))
+                effective_status = int(status)
+                if not scenario_success and profile == "balanced" and not release_validation:
+                    effective_status = HTTPStatus.OK
+                    response = {
+                        "success": True,
+                        "scenario_success": False,
+                        "non_blocking": True,
+                        "message": "Scenario assertions failed; balanced profile treated this as non-blocking.",
+                        "profile": profile,
+                        "release_validation": release_validation,
+                        "upstream": response,
+                    }
+                else:
+                    response["profile"] = profile
+                    response["release_validation"] = release_validation
+
+                update_release_metrics(
+                    run_kind="scenario_runs",
+                    run_success=scenario_success,
+                    http_status=effective_status,
+                    response_payload=response,
+                    profile=profile,
+                    release_validation=release_validation,
+                )
+                self._json_response(effective_status, response)
+                log_event(
+                    "run_scenario",
+                    {
+                        "request_id": request_id,
+                        "assertions": len(assertions),
+                        "dry_run": dry_run,
+                        "profile": profile,
+                        "release_validation": release_validation,
+                        "status": int(effective_status),
+                        "scenario_success": scenario_success,
+                        "duration_ms": int((time.time() - started) * 1000),
+                    },
                 )
                 return
 
@@ -1590,6 +2236,9 @@ class RequestHandler(BaseHTTPRequestHandler):
                     "dry_run": bool(body.get("dry_run", False)),
                     "stop_on_error": bool(body.get("stop_on_error", True)),
                     "goal_context": body.get("goal_context", {}),
+                    "recipe_id": str(body.get("recipe_id", "")).strip(),
+                    "inputs": body.get("inputs", {}),
+                    "profile": str(body.get("profile", settings.get("execution_profile", "balanced"))).strip(),
                     "approval_token": str(body.get("approval_token", "")).strip(),
                 }
                 path = "/api/command"
@@ -1612,6 +2261,128 @@ class RequestHandler(BaseHTTPRequestHandler):
                 llm_model = str(settings.get("llm_model", "")).strip()
                 llm_base_url = str(settings.get("llm_base_url", "")).strip()
                 use_llm = llm_enabled and bool(llm_model) and bool(llm_base_url)
+                profile = str(body.get("profile", settings.get("execution_profile", "balanced"))).strip().lower() or "balanced"
+
+                direct_inputs = body.get("inputs", {})
+                if not isinstance(direct_inputs, dict):
+                    self._json_response(HTTPStatus.BAD_REQUEST, make_error("INVALID_PAYLOAD", "inputs must be an object"))
+                    return
+
+                explicit_recipe_id = str(body.get("recipe_id", "")).strip()
+                if not explicit_recipe_id:
+                    explicit_recipe_id = str(goal_context.get("recipe_id", "")).strip()
+                routed_recipe_id = explicit_recipe_id or infer_recipe_id_from_message(command)
+
+                if routed_recipe_id:
+                    recipe_def = get_recipe_definition(routed_recipe_id)
+                    recipe_inputs = dict(goal_context)
+                    recipe_inputs.pop("recipe_id", None)
+                    nested_inputs = goal_context.get("inputs", {})
+                    if isinstance(nested_inputs, dict):
+                        recipe_inputs.update(nested_inputs)
+                    recipe_inputs.update(direct_inputs)
+
+                    if recipe_def is not None and use_llm:
+                        recipe_inputs = complete_recipe_inputs_with_llm(
+                            settings=settings,
+                            message=command,
+                            recipe_def=recipe_def,
+                            existing_inputs=recipe_inputs,
+                        )
+
+                    if recipe_def is not None:
+                        recipe_inputs = apply_recipe_defaults(recipe_def, recipe_inputs)
+                        recipe_validation = validate_recipe_inputs(recipe_def, recipe_inputs)
+                        if not recipe_validation.get("ok", False):
+                            self._json_response(
+                                HTTPStatus.BAD_REQUEST,
+                                make_error(
+                                    "RECIPE_INPUT_VALIDATION_FAILED",
+                                    "Recipe input validation failed.",
+                                    recipe_id=routed_recipe_id,
+                                    validation=recipe_validation,
+                                ),
+                            )
+                            return
+                    else:
+                        recipe_validation = {"ok": True, "errors": [], "warnings": ["Recipe schema not found locally."]}
+
+                    risky = []
+                    if recipe_def is not None:
+                        recipe_actions = [
+                            str(step.get("action", "")).strip()
+                            for step in recipe_def.get("steps", [])
+                            if isinstance(step, dict)
+                        ]
+                        risky = sorted(list(set(recipe_actions).intersection(set(settings.get("risky_actions", [])))))
+                    if len(risky) == 0 and not dry_run:
+                        risky = list(settings.get("risky_actions", []))
+
+                    approval_result = check_requires_approval(
+                        settings=settings,
+                        operation="command-recipe",
+                        risky_actions=risky,
+                        dry_run=dry_run,
+                        approval_token=approval_token,
+                        request_payload={"recipe_id": routed_recipe_id, "inputs": recipe_inputs},
+                    )
+                    if approval_result:
+                        self._json_response(HTTPStatus.ACCEPTED, approval_result)
+                        return
+
+                    recipe_request = {
+                        "recipe_id": routed_recipe_id,
+                        "inputs": recipe_inputs,
+                        "dry_run": dry_run,
+                        "stop_on_error": stop_on_error,
+                        "profile": profile,
+                    }
+
+                    def run_command_recipe():
+                        result = call_unreal(settings, "POST", "/run-recipe", recipe_request)
+                        payload = result.payload if isinstance(result.payload, dict) else {"success": False, "raw": result.payload}
+                        response = {
+                            "success": bool(payload.get("success", False)),
+                            "mode": "recipe",
+                            "recipe_id": routed_recipe_id,
+                            "profile": profile,
+                            "resolved_inputs": recipe_inputs,
+                            "input_validation": recipe_validation,
+                            "execution": payload,
+                            "unreal_status_code": result.status_code,
+                        }
+                        issues = collect_analysis_contradictions(response)
+                        if issues:
+                            return HTTPStatus.CONFLICT, make_error(
+                                "ANALYSIS_CONTRADICTION",
+                                "Recipe execution reported analysis contradictions.",
+                                issues=issues,
+                                result=response,
+                            )
+                        return HTTPStatus.OK if result.status_code < 500 else HTTPStatus.BAD_GATEWAY, response
+
+                    status, response = self._with_run_lock(run_command_recipe)
+                    update_release_metrics(
+                        run_kind="recipe_runs",
+                        run_success=bool(response.get("success", False)),
+                        http_status=int(status),
+                        response_payload=response,
+                        profile=profile,
+                        release_validation=False,
+                    )
+                    self._json_response(status, response)
+                    log_event(
+                        "command_recipe",
+                        {
+                            "request_id": request_id,
+                            "command": command,
+                            "recipe_id": routed_recipe_id,
+                            "dry_run": dry_run,
+                            "status": int(status),
+                            "duration_ms": int((time.time() - started) * 1000),
+                        },
+                    )
+                    return
 
                 actions_result = call_unreal(settings, "GET", "/actions")
                 if actions_result.status_code >= 400:
@@ -1797,6 +2568,8 @@ def main() -> int:
     save_settings(load_settings())
     if not APPROVALS_PATH.exists():
         save_approvals({"items": {}})
+    if not RELEASE_METRICS_PATH.exists():
+        save_release_metrics(default_release_metrics())
 
     server = ThreadingHTTPServer((host, port), RequestHandler)
     print(f"Unreal Agent Web running at http://{host}:{port}")

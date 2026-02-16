@@ -35,10 +35,13 @@ This starts the server in the background (if needed) and opens the chat UI.
 - Saves local settings (`apps/unreal-agent-web/.data/settings.json`)
 - Stores approvals (`apps/unreal-agent-web/.data/approvals.json`)
 - Writes audit log (`apps/unreal-agent-web/.data/audit.log.jsonl`)
+- Writes release metrics (`apps/unreal-agent-web/.data/release_metrics.json`)
 - Sends natural language commands:
+  - recipe-first deterministic routing -> `/run-recipe` in Unreal, then
   - LLM plan generation -> `/run-plan` in Unreal, or
   - fallback directly to Unreal `/run-goal`
 - Supports direct action execution and raw plan execution
+- Supports deterministic recipe validation and scenario runs
 - Adds compatibility checks against Unreal `/info`
 - Adds run lock so only one Unreal execution request runs at a time
 - Provides chat-first endpoint: `POST /api/chat` (alias of `/api/command`)
@@ -49,6 +52,8 @@ This starts the server in the background (if needed) and opens the chat UI.
 - `GET /api/info`
 - `GET /api/state`
 - `GET /api/actions`
+- `GET /api/recipes`
+- `GET /api/release-metrics`
 - `GET /api/node-library`
 - `GET /api/approvals`
 - `POST /api/settings`
@@ -56,4 +61,7 @@ This starts the server in the background (if needed) and opens the chat UI.
 - `POST /api/direct-execute`
 - `POST /api/run-plan`
 - `POST /api/run-goal`
+- `POST /api/run-recipe`
+- `POST /api/validate-recipe`
+- `POST /api/run-scenario`
 - `POST /api/command`

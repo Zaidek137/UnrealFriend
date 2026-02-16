@@ -147,12 +147,35 @@ Response:
   - `POST /unreal-agent/v1/execute`
   - `POST /unreal-agent/v1/run-plan`
   - `POST /unreal-agent/v1/run-goal`
+  - `GET /unreal-agent/v1/recipes`
+  - `POST /unreal-agent/v1/run-recipe`
+  - `POST /unreal-agent/v1/validate-recipe`
+  - `POST /unreal-agent/v1/run-scenario`
+  - `GET /unreal-agent/v1/debug/traces`
+  - `POST /unreal-agent/v1/debug/clear`
 - Initial actions:
   - `create_blueprint`
   - `spawn_actor`
   - `compile_blueprint`
   - `inspect_asset`
   - `inspect_blueprint_graph`
+  - recipe/world/data/validation families:
+    - `create_widget_blueprint`
+    - `create_objective_actor`
+    - `wire_objective_progress`
+    - `create_timer_system`
+    - `create_score_system`
+    - `create_restart_flow`
+    - `batch_spawn_actors`
+    - `layout_along_spline`
+    - `create_level_chunk`
+    - `tag_and_group_actors`
+    - `create_data_asset`
+    - `validate_data_schema`
+    - `inspect_compile_errors`
+    - `run_pie_scenario`
+    - `assert_world_state`
+    - `capture_screenshot`
   - `modify_blueprint_graph` operations:
     - `add_print_string_on_begin_play`
     - `add_variable`
