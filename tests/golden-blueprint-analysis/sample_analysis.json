@@ -1,0 +1,43 @@
+{
+  "blueprint": "/Game/Test/BP_Golden",
+  "graph_name": "EventGraph",
+  "total_nodes": 2,
+  "returned_nodes": 2,
+  "truncated": false,
+  "nodes": [
+    {
+      "name": "K2Node_Event_BeginPlay",
+      "title": "Event BeginPlay",
+      "pins": [
+        {"name": "then", "direction": "output", "category": "exec", "links": 1}
+      ]
+    },
+    {
+      "name": "K2Node_CallFunction_PrintString",
+      "title": "Print String",
+      "pins": [
+        {"name": "execute", "direction": "input", "category": "exec", "links": 1},
+        {"name": "In String", "direction": "input", "category": "string", "links": 0, "default_value": "Hello"}
+      ]
+    }
+  ],
+  "entry_nodes": [
+    {"node_name": "K2Node_Event_BeginPlay", "node_title": "Event BeginPlay"}
+  ],
+  "exec_edges": [
+    {"from_node": "K2Node_Event_BeginPlay", "from_pin": "then", "to_node": "K2Node_CallFunction_PrintString", "to_pin": "execute"}
+  ],
+  "dead_exec_outputs": [],
+  "branch_guards": [],
+  "function_calls": [
+    {"node_name": "K2Node_CallFunction_PrintString", "node_title": "Print String", "target": "self"}
+  ],
+  "delays": [],
+  "print_strings": [
+    {"node_name": "K2Node_CallFunction_PrintString", "message": "Hello", "duration": "2.0"}
+  ],
+  "enum_values": [],
+  "constants": [],
+  "contradictions": [],
+  "analysis_ok": true
+}

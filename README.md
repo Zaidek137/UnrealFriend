@@ -15,6 +15,8 @@ It gives you:
   - `compile_blueprint`
   - `inspect_asset`
   - `inspect_blueprint_graph`
+  - `analyze_blueprint_graph`
+  - `analyze_blueprint_asset`
   - `modify_blueprint_graph`:
     - `add_print_string_on_begin_play`
     - `add_variable`
@@ -176,6 +178,23 @@ curl -X POST http://127.0.0.1:47777/unreal-agent/v1/execute \
       "blueprint_path": "/Game/AI/Blueprints/BP_EnemyGrunt",
       "max_nodes": 100,
       "include_pins": false
+    }
+  }'
+```
+
+Example: deterministic blueprint graph analysis (flow + guards + contradictions)
+
+```bash
+curl -X POST http://127.0.0.1:47777/unreal-agent/v1/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "analyze_blueprint_graph",
+    "payload": {
+      "blueprint_path": "/Game/AI/Blueprints/BP_EnemyGrunt",
+      "graph_name": "EventGraph",
+      "include_pins": true,
+      "max_nodes": 500,
+      "max_trace_depth": 128
     }
   }'
 ```
@@ -369,6 +388,31 @@ Integration guide:
 - `docs/WEB_TOOL_AND_IDE_INTEGRATION.md`
 - `docs/CURSOR_AGENT_SETUP.md`
 - `docs/BLUEPRINT_NODE_LIBRARY.md`
+- `POST /api/analyze` in web tool:
+  - deterministic blueprint analysis first
+  - optional LLM summarization on top (strictly evidence-linked)
+  - hard-fails uncited/speculative claims
+  - stores artifacts at `apps/unreal-agent-web/.data/analysis-runs/<run_id>/analysis.json`
+
+Example: run strict analysis via web tool
+
+```bash
+curl -X POST http://127.0.0.1:8787/api/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+    "blueprint_path": "/Game/AI/Blueprints/BP_EnemyGrunt",
+    "mode": "asset",
+    "max_nodes": 1000,
+    "max_trace_depth": 128,
+    "prompt": "Analyze all gameplay-critical paths and guard conditions."
+  }'
+```
+
+Example: list recent analysis artifacts
+
+```bash
+curl http://127.0.0.1:8787/api/analysis-runs
+```
 
 ## Next Actions To Add
 

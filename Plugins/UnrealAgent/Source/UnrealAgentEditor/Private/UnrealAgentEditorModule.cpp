@@ -2,6 +2,8 @@
 
 #include "Agent/Actions/CompileBlueprintAction.h"
 #include "Agent/Actions/CreateBlueprintAction.h"
+#include "Agent/Actions/AnalyzeBlueprintAssetAction.h"
+#include "Agent/Actions/AnalyzeBlueprintGraphAction.h"
 #include "Agent/Actions/InspectAssetAction.h"
 #include "Agent/Actions/InspectBlueprintGraphAction.h"
 #include "Agent/Actions/ModifyBlueprintGraphAction.h"
@@ -20,6 +22,8 @@ void FUnrealAgentEditorModule::StartupModule()
     RegisteredActions.Add(MakeShared<FModifyBlueprintGraphAction>());
     RegisteredActions.Add(MakeShared<FInspectAssetAction>());
     RegisteredActions.Add(MakeShared<FInspectBlueprintGraphAction>());
+    RegisteredActions.Add(MakeShared<FAnalyzeBlueprintGraphAction>());
+    RegisteredActions.Add(MakeShared<FAnalyzeBlueprintAssetAction>());
 
     for (const TSharedPtr<IAgentAction>& Action : RegisteredActions)
     {

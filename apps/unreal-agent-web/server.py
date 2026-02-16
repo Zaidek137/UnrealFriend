@@ -20,6 +20,7 @@ APP_DIR = Path(__file__).resolve().parent
 ROOT_DIR = APP_DIR.parent.parent
 STATIC_DIR = APP_DIR / "static"
 DATA_DIR = APP_DIR / ".data"
+ANALYSIS_RUNS_DIR = DATA_DIR / "analysis-runs"
 SETTINGS_PATH = DATA_DIR / "settings.json"
 APPROVALS_PATH = DATA_DIR / "approvals.json"
 AUDIT_LOG_PATH = DATA_DIR / "audit.log.jsonl"
@@ -34,6 +35,10 @@ MUTATING_ACTIONS = {
     "spawn_actor",
     "modify_blueprint_graph",
 }
+ANALYSIS_ACTIONS = {
+    "analyze_blueprint_graph",
+    "analyze_blueprint_asset",
+}
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "unreal_base_url": "http://127.0.0.1:47777/unreal-agent/v1",
@@ -47,6 +52,11 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "risky_actions": sorted(list(MUTATING_ACTIONS)),
     "min_api_version": "v1",
     "min_plugin_version": "0.1.0",
+    "analysis_llm_summary": True,
+    "analysis_require_citations": True,
+    "analysis_disallow_speculative": True,
+    "analysis_store_artifacts": True,
+    "analysis_max_saved_runs": 200,
 }
 
 
@@ -72,6 +82,7 @@ def normalize_error_payload(payload: Dict[str, Any], fallback_code: str = "UPSTR
 
 def ensure_data_dir() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    ANALYSIS_RUNS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def load_json_file(path: Path, default: Any) -> Any:
@@ -491,6 +502,458 @@ def get_plan_actions(plan: Dict[str, Any]) -> List[str]:
     return actions
 
 
+def collect_analysis_contradictions(obj: Any, path: str = "root") -> List[str]:
+    issues: List[str] = []
+    if isinstance(obj, dict):
+        error_code = str(obj.get("error_code", "")).strip()
+        if error_code == "ANALYSIS_CONTRADICTION":
+            issues.append(f"{path}: error_code=ANALYSIS_CONTRADICTION")
+
+        contradictions = obj.get("contradictions")
+        if isinstance(contradictions, list) and len(contradictions) > 0:
+            issues.append(f"{path}: contradictions={len(contradictions)}")
+
+        total_contradictions = obj.get("total_contradictions")
+        if isinstance(total_contradictions, (int, float)) and int(total_contradictions) > 0:
+            issues.append(f"{path}: total_contradictions={int(total_contradictions)}")
+
+        for key, value in obj.items():
+            issues.extend(collect_analysis_contradictions(value, f"{path}.{key}"))
+    elif isinstance(obj, list):
+        for idx, value in enumerate(obj):
+            issues.extend(collect_analysis_contradictions(value, f"{path}[{idx}]"))
+    return issues
+
+
+SPECULATIVE_TERMS = [
+    "likely",
+    "maybe",
+    "possibly",
+    "probably",
+    "e.g.",
+    "for example",
+    "appears to",
+    "seems to",
+    "might",
+]
+
+
+def extract_upstream_payload(response_payload: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(response_payload, dict):
+        return {}
+    payload = response_payload.get("payload")
+    if isinstance(payload, dict):
+        return payload
+    return {}
+
+
+def get_analysis_graphs(analysis_payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    graphs = analysis_payload.get("graphs")
+    if isinstance(graphs, list):
+        out: List[Dict[str, Any]] = []
+        for g in graphs:
+            if isinstance(g, dict):
+                out.append(g)
+        return out
+    return [analysis_payload] if isinstance(analysis_payload, dict) else []
+
+
+def build_analysis_evidence_index(analysis_payload: Dict[str, Any]) -> Dict[str, Any]:
+    nodes_by_graph: Dict[str, set[str]] = {}
+    pins_by_graph_node: Dict[str, set[str]] = {}
+
+    for graph in get_analysis_graphs(analysis_payload):
+        graph_name = str(graph.get("graph_name", "")).strip()
+        if not graph_name:
+            continue
+        node_names: set[str] = set()
+        for node in graph.get("nodes", []):
+            if not isinstance(node, dict):
+                continue
+            node_name = str(node.get("name", "")).strip()
+            if not node_name:
+                continue
+            node_names.add(node_name)
+            pins = node.get("pins", [])
+            if isinstance(pins, list):
+                key = f"{graph_name}:{node_name}"
+                pin_names = pins_by_graph_node.setdefault(key, set())
+                for pin in pins:
+                    if isinstance(pin, dict):
+                        pin_name = str(pin.get("name", "")).strip()
+                        if pin_name:
+                            pin_names.add(pin_name)
+        nodes_by_graph[graph_name] = node_names
+
+    return {"nodes_by_graph": nodes_by_graph, "pins_by_graph_node": pins_by_graph_node}
+
+
+def build_analysis_lint(analysis_payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    findings: List[Dict[str, Any]] = []
+
+    for graph in get_analysis_graphs(analysis_payload):
+        graph_name = str(graph.get("graph_name", "")).strip() or "<unknown>"
+
+        dead_exec = graph.get("dead_exec_outputs", [])
+        if isinstance(dead_exec, list):
+            for item in dead_exec:
+                if not isinstance(item, dict):
+                    continue
+                findings.append(
+                    {
+                        "rule_id": "dead_exec_output",
+                        "severity": "high",
+                        "message": "Execution output pin has no downstream connection.",
+                        "evidence": [
+                            {
+                                "graph_name": graph_name,
+                                "node_name": str(item.get("node_name", "")),
+                                "pin_name": str(item.get("pin_name", "")),
+                            }
+                        ],
+                    }
+                )
+
+        branch_guards = graph.get("branch_guards", [])
+        if isinstance(branch_guards, list):
+            for branch in branch_guards:
+                if not isinstance(branch, dict):
+                    continue
+                then_links = int(branch.get("then_links", 0))
+                else_links = int(branch.get("else_links", 0))
+                if then_links == 0 or else_links == 0:
+                    missing_side = "Then" if then_links == 0 else "Else"
+                    findings.append(
+                        {
+                            "rule_id": "branch_missing_path",
+                            "severity": "high",
+                            "message": f"Branch node missing {missing_side} execution path.",
+                            "evidence": [
+                                {
+                                    "graph_name": graph_name,
+                                    "node_name": str(branch.get("node_name", "")),
+                                    "pin_name": missing_side,
+                                }
+                            ],
+                        }
+                    )
+
+        function_calls = graph.get("function_calls", [])
+        node_titles = {str(n.get("title", "")).lower() for n in graph.get("nodes", []) if isinstance(n, dict)}
+        has_network_call = False
+        if isinstance(function_calls, list):
+            for call in function_calls:
+                if not isinstance(call, dict):
+                    continue
+                title = str(call.get("node_title", "")).lower()
+                if any(term in title for term in ["server", "client", "multicast", "replicat"]):
+                    has_network_call = True
+                    break
+        has_authority_guard = any("authority" in title for title in node_titles)
+        if has_network_call and not has_authority_guard:
+            findings.append(
+                {
+                    "rule_id": "network_without_authority_guard",
+                    "severity": "medium",
+                    "message": "Network-oriented calls detected without an obvious authority guard node.",
+                    "evidence": [{"graph_name": graph_name}],
+                }
+            )
+
+        constants = graph.get("constants", [])
+        if isinstance(constants, list):
+            for constant in constants:
+                if not isinstance(constant, dict):
+                    continue
+                pin_defaults = constant.get("pin_defaults", [])
+                if not isinstance(pin_defaults, list):
+                    continue
+                for pd in pin_defaults:
+                    if not isinstance(pd, dict):
+                        continue
+                    pin_name = str(pd.get("pin_name", "")).lower()
+                    default_value = str(pd.get("default_value", "")).strip()
+                    if pin_name in {"down", "yards", "yards_to_go"} and default_value in {"1", "10", "1.0", "10.0"}:
+                        findings.append(
+                            {
+                                "rule_id": "possible_reset_logic",
+                                "severity": "low",
+                                "message": "Down/yards style value is hard-set to a reset-like constant. Verify intent.",
+                                "evidence": [
+                                    {
+                                        "graph_name": graph_name,
+                                        "node_name": str(constant.get("node_name", "")),
+                                        "pin_name": str(pd.get("pin_name", "")),
+                                        "value": default_value,
+                                    }
+                                ],
+                            }
+                        )
+
+    return findings
+
+
+def contains_speculative_text(value: str) -> bool:
+    text = value.lower().strip()
+    if not text:
+        return False
+    return any(term in text for term in SPECULATIVE_TERMS)
+
+
+def build_deterministic_analysis_report(
+    analysis_payload: Dict[str, Any],
+    lint_findings: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    graphs = get_analysis_graphs(analysis_payload)
+    total_nodes = int(analysis_payload.get("total_nodes", 0))
+    if total_nodes <= 0:
+        total_nodes = sum(int(g.get("total_nodes", 0)) for g in graphs if isinstance(g, dict))
+
+    claims: List[Dict[str, Any]] = []
+    for graph in graphs:
+        graph_name = str(graph.get("graph_name", "")).strip() or "<unknown>"
+        entry_nodes = graph.get("entry_nodes", [])
+        branch_guards = graph.get("branch_guards", [])
+        delays = graph.get("delays", [])
+        print_strings = graph.get("print_strings", [])
+        if isinstance(entry_nodes, list) and len(entry_nodes) > 0:
+            first_entry = entry_nodes[0] if isinstance(entry_nodes[0], dict) else {}
+            claims.append(
+                {
+                    "claim": f"Graph '{graph_name}' has {len(entry_nodes)} entry node(s).",
+                    "confidence": 1.0,
+                    "unknown": False,
+                    "evidence": [
+                        {
+                            "graph_name": graph_name,
+                            "node_name": str(first_entry.get("node_name", "")),
+                        }
+                    ],
+                }
+            )
+        if isinstance(branch_guards, list) and len(branch_guards) > 0:
+            first_branch = branch_guards[0] if isinstance(branch_guards[0], dict) else {}
+            claims.append(
+                {
+                    "claim": f"Graph '{graph_name}' contains {len(branch_guards)} branch guard node(s).",
+                    "confidence": 1.0,
+                    "unknown": False,
+                    "evidence": [
+                        {
+                            "graph_name": graph_name,
+                            "node_name": str(first_branch.get("node_name", "")),
+                            "pin_name": "Condition",
+                        }
+                    ],
+                }
+            )
+        if isinstance(delays, list):
+            for delay in delays[:2]:
+                if not isinstance(delay, dict):
+                    continue
+                claims.append(
+                    {
+                        "claim": f"Graph '{graph_name}' contains Delay with duration '{str(delay.get('duration', ''))}'.",
+                        "confidence": 1.0,
+                        "unknown": False,
+                        "evidence": [
+                            {
+                                "graph_name": graph_name,
+                                "node_name": str(delay.get("node_name", "")),
+                                "pin_name": "Duration",
+                            }
+                        ],
+                    }
+                )
+        if isinstance(print_strings, list):
+            for ps in print_strings[:2]:
+                if not isinstance(ps, dict):
+                    continue
+                claims.append(
+                    {
+                        "claim": f"Graph '{graph_name}' prints '{str(ps.get('message', ''))}'.",
+                        "confidence": 1.0,
+                        "unknown": False,
+                        "evidence": [
+                            {
+                                "graph_name": graph_name,
+                                "node_name": str(ps.get("node_name", "")),
+                                "pin_name": "In String",
+                            }
+                        ],
+                    }
+                )
+
+    return {
+        "summary": f"Analyzed {len(graphs)} graph(s) with {total_nodes} total node(s); {len(lint_findings)} lint finding(s).",
+        "claims": claims,
+        "unknowns": [],
+    }
+
+
+def validate_analysis_report(
+    report: Dict[str, Any],
+    evidence_index: Dict[str, Any],
+    require_citations: bool,
+    disallow_speculative: bool,
+) -> Dict[str, Any]:
+    errors: List[str] = []
+    warnings: List[str] = []
+
+    nodes_by_graph: Dict[str, set[str]] = evidence_index.get("nodes_by_graph", {})
+    pins_by_graph_node: Dict[str, set[str]] = evidence_index.get("pins_by_graph_node", {})
+
+    claims = report.get("claims")
+    if not isinstance(claims, list):
+        return {"ok": False, "errors": ["report.claims must be an array."], "warnings": []}
+    summary = str(report.get("summary", "")).strip()
+    if disallow_speculative and contains_speculative_text(summary):
+        errors.append("report.summary contains speculative language.")
+
+    for i, claim_obj in enumerate(claims, start=1):
+        if not isinstance(claim_obj, dict):
+            errors.append(f"Claim {i}: must be an object.")
+            continue
+        claim_text = str(claim_obj.get("claim", "")).strip()
+        if not claim_text:
+            errors.append(f"Claim {i}: claim text is required.")
+        elif disallow_speculative and contains_speculative_text(claim_text):
+            errors.append(f"Claim {i}: speculative language is not allowed.")
+
+        evidence = claim_obj.get("evidence", [])
+        if require_citations and (not isinstance(evidence, list) or len(evidence) == 0):
+            errors.append(f"Claim {i}: at least one evidence item is required.")
+            continue
+
+        if not isinstance(evidence, list):
+            continue
+
+        for j, ev in enumerate(evidence, start=1):
+            if not isinstance(ev, dict):
+                errors.append(f"Claim {i} evidence {j}: must be an object.")
+                continue
+            graph_name = str(ev.get("graph_name", "")).strip()
+            node_name = str(ev.get("node_name", "")).strip()
+            pin_name = str(ev.get("pin_name", "")).strip()
+            if not graph_name or graph_name not in nodes_by_graph:
+                errors.append(f"Claim {i} evidence {j}: graph_name is missing or unknown.")
+                continue
+            if node_name and node_name not in nodes_by_graph.get(graph_name, set()):
+                errors.append(f"Claim {i} evidence {j}: node_name '{node_name}' not found in graph '{graph_name}'.")
+                continue
+            if pin_name and node_name:
+                key = f"{graph_name}:{node_name}"
+                known_pins = pins_by_graph_node.get(key, set())
+                if len(known_pins) > 0 and pin_name not in known_pins:
+                    errors.append(f"Claim {i} evidence {j}: pin_name '{pin_name}' not found on '{node_name}'.")
+
+        confidence = claim_obj.get("confidence")
+        if confidence is not None:
+            try:
+                cf = float(confidence)
+                if cf < 0.0 or cf > 1.0:
+                    errors.append(f"Claim {i}: confidence must be between 0 and 1.")
+            except Exception:
+                errors.append(f"Claim {i}: confidence must be numeric.")
+
+    unknowns = report.get("unknowns", [])
+    if not isinstance(unknowns, list):
+        errors.append("report.unknowns must be an array.")
+    elif disallow_speculative:
+        for i, item in enumerate(unknowns, start=1):
+            if isinstance(item, str) and contains_speculative_text(item):
+                warnings.append(f"Unknown {i}: contains speculative phrasing.")
+
+    return {"ok": len(errors) == 0, "errors": errors, "warnings": warnings}
+
+
+def generate_analysis_report_with_llm(
+    settings: Dict[str, Any],
+    user_prompt: str,
+    analysis_payload: Dict[str, Any],
+    lint_findings: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    llm_api_key = str(settings.get("llm_api_key", "")).strip()
+    llm_base_url = str(settings.get("llm_base_url", "")).rstrip("/")
+    llm_model = str(settings.get("llm_model", "")).strip()
+    temperature = float(settings.get("llm_temperature", 0.1))
+    if not llm_base_url:
+        raise ValueError("LLM base URL is missing.")
+    if not llm_model:
+        raise ValueError("LLM model is missing.")
+
+    system_prompt = (
+        "You are a strict Blueprint analyst. Use only provided deterministic analysis data. "
+        "No speculation. No guesses. Return ONLY JSON with schema: "
+        "{summary:string,claims:[{claim:string,confidence:number,unknown:boolean,evidence:[{graph_name:string,node_name:string,pin_name:string}]}],unknowns:[string]}."
+    )
+    user_content = (
+        f"User request: {user_prompt}\n"
+        f"Deterministic analysis data:\n{json.dumps(analysis_payload, indent=2)}\n"
+        f"Lint findings:\n{json.dumps(lint_findings, indent=2)}\n"
+        "Rules:\n"
+        "- Every claim MUST include at least one evidence item with graph_name and node_name.\n"
+        "- pin_name is required when claim references a pin value.\n"
+        "- Never use words like likely/maybe/possibly/e.g.\n"
+        "- If unknown, put it in unknowns instead of guessing.\n"
+    )
+
+    body = {
+        "model": llm_model,
+        "temperature": temperature,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+    }
+
+    headers: Dict[str, str] = {}
+    if llm_api_key:
+        headers["Authorization"] = f"Bearer {llm_api_key}"
+
+    result = request_json(
+        "POST",
+        f"{llm_base_url}/chat/completions",
+        payload=body,
+        headers=headers,
+        timeout_sec=90,
+    )
+    if result.status_code >= 400:
+        raise RuntimeError(f"LLM request failed ({result.status_code}): {json.dumps(result.payload)}")
+
+    choices = result.payload.get("choices", [])
+    if not choices:
+        raise ValueError("LLM returned no choices.")
+    message = choices[0].get("message", {})
+    content = message.get("content", "")
+    if not isinstance(content, str):
+        raise ValueError("LLM message content missing.")
+    report = extract_first_json_object(content)
+    return report
+
+
+def write_analysis_artifact(settings: Dict[str, Any], artifact: Dict[str, Any]) -> str:
+    ensure_data_dir()
+    run_id = f"run_{int(time.time())}_{uuid4().hex[:8]}"
+    run_dir = ANALYSIS_RUNS_DIR / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "analysis.json").write_text(json.dumps(artifact, indent=2), encoding="utf-8")
+
+    max_saved = int(settings.get("analysis_max_saved_runs", 200))
+    if max_saved > 0:
+        run_dirs = [p for p in ANALYSIS_RUNS_DIR.iterdir() if p.is_dir()]
+        run_dirs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        for old_dir in run_dirs[max_saved:]:
+            try:
+                for f in old_dir.iterdir():
+                    if f.is_file():
+                        f.unlink()
+                old_dir.rmdir()
+            except Exception:
+                pass
+    return run_id
+
+
 def create_approval(
     kind: str,
     summary: str,
@@ -750,6 +1213,25 @@ class RequestHandler(BaseHTTPRequestHandler):
                     },
                 )
                 return
+            if path == "/api/analysis-runs":
+                runs: List[Dict[str, Any]] = []
+                for run_dir in sorted(
+                    [p for p in ANALYSIS_RUNS_DIR.iterdir() if p.is_dir()],
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )[:50]:
+                    analysis_file = run_dir / "analysis.json"
+                    if not analysis_file.exists():
+                        continue
+                    runs.append(
+                        {
+                            "run_id": run_dir.name,
+                            "updated_at": run_dir.stat().st_mtime,
+                            "analysis_file": str(analysis_file),
+                        }
+                    )
+                self._json_response(HTTPStatus.OK, {"success": True, "runs": runs})
+                return
 
             self._json_response(HTTPStatus.NOT_FOUND, make_error("NOT_FOUND", "Not found"))
         except Exception as exc:
@@ -805,6 +1287,145 @@ class RequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
+            if path == "/api/analyze":
+                blueprint_path = str(body.get("blueprint_path", "")).strip()
+                graph_name = str(body.get("graph_name", "")).strip()
+                mode = str(body.get("mode", "asset")).strip().lower()
+                include_pins = bool(body.get("include_pins", True))
+                max_nodes = int(body.get("max_nodes", 1000))
+                max_trace_depth = int(body.get("max_trace_depth", 128))
+                prompt = str(body.get("prompt", "")).strip() or "Analyze this blueprint accurately."
+                if not blueprint_path:
+                    self._json_response(HTTPStatus.BAD_REQUEST, make_error("MISSING_FIELD", "blueprint_path is required."))
+                    return
+
+                action_name = "analyze_blueprint_asset" if mode == "asset" else "analyze_blueprint_graph"
+                action_payload: Dict[str, Any] = {
+                    "blueprint_path": blueprint_path,
+                    "include_pins": include_pins,
+                    "max_trace_depth": max_trace_depth,
+                }
+                if action_name == "analyze_blueprint_graph":
+                    action_payload["max_nodes"] = max_nodes
+                    if graph_name:
+                        action_payload["graph_name"] = graph_name
+                else:
+                    action_payload["max_nodes_per_graph"] = max_nodes
+
+                def run_analysis():
+                    result = call_unreal(
+                        settings,
+                        "POST",
+                        "/execute",
+                        {"action": action_name, "payload": action_payload, "dry_run": True},
+                    )
+                    return result.status_code, result.payload
+
+                status, response = self._with_run_lock(run_analysis)
+                if status >= 400:
+                    self._json_response(status, response)
+                    return
+
+                contradictions = collect_analysis_contradictions(response)
+                if contradictions:
+                    self._json_response(
+                        HTTPStatus.CONFLICT,
+                        make_error(
+                            "ANALYSIS_CONTRADICTION",
+                            "Deterministic analysis found contradictions.",
+                            issues=contradictions,
+                            upstream=response,
+                        ),
+                    )
+                    return
+
+                analysis_payload = extract_upstream_payload(response)
+                if not analysis_payload:
+                    self._json_response(
+                        HTTPStatus.BAD_GATEWAY,
+                        make_error("ANALYSIS_PAYLOAD_MISSING", "Analyzer returned no payload.", upstream=response),
+                    )
+                    return
+
+                lint_findings = build_analysis_lint(analysis_payload)
+                evidence_index = build_analysis_evidence_index(analysis_payload)
+                use_llm_summary = bool(settings.get("analysis_llm_summary", True)) and bool(settings.get("llm_enabled", True))
+                report_source = "deterministic"
+                report_errors: List[str] = []
+                if use_llm_summary:
+                    try:
+                        report = generate_analysis_report_with_llm(settings, prompt, analysis_payload, lint_findings)
+                        report_source = "llm"
+                    except Exception as exc:
+                        report = build_deterministic_analysis_report(analysis_payload, lint_findings)
+                        report_source = "deterministic_fallback"
+                        report_errors.append(str(exc))
+                else:
+                    report = build_deterministic_analysis_report(analysis_payload, lint_findings)
+
+                report_validation = validate_analysis_report(
+                    report=report,
+                    evidence_index=evidence_index,
+                    require_citations=bool(settings.get("analysis_require_citations", True)),
+                    disallow_speculative=bool(settings.get("analysis_disallow_speculative", True)),
+                )
+                if not report_validation.get("ok", False):
+                    self._json_response(
+                        HTTPStatus.UNPROCESSABLE_ENTITY,
+                        make_error(
+                            "ANALYSIS_REPORT_INVALID",
+                            "Analysis report failed strict validation.",
+                            report_validation=report_validation,
+                            report=report,
+                            lint_findings=lint_findings,
+                            analysis=analysis_payload,
+                        ),
+                    )
+                    return
+
+                artifact = {
+                    "timestamp": time.time(),
+                    "blueprint_path": blueprint_path,
+                    "mode": mode,
+                    "action": action_name,
+                    "action_payload": action_payload,
+                    "report_source": report_source,
+                    "report_generation_errors": report_errors,
+                    "analysis": analysis_payload,
+                    "lint_findings": lint_findings,
+                    "report": report,
+                    "report_validation": report_validation,
+                }
+                run_id = ""
+                if bool(settings.get("analysis_store_artifacts", True)):
+                    run_id = write_analysis_artifact(settings, artifact)
+
+                self._json_response(
+                    HTTPStatus.OK,
+                    {
+                        "success": True,
+                        "run_id": run_id,
+                        "report_source": report_source,
+                        "analysis": analysis_payload,
+                        "lint_findings": lint_findings,
+                        "report": report,
+                        "report_validation": report_validation,
+                    },
+                )
+                log_event(
+                    "analysis_run",
+                    {
+                        "request_id": request_id,
+                        "run_id": run_id,
+                        "blueprint_path": blueprint_path,
+                        "mode": mode,
+                        "report_source": report_source,
+                        "lint_count": len(lint_findings),
+                        "duration_ms": int((time.time() - started) * 1000),
+                    },
+                )
+                return
+
             if path == "/api/direct-execute":
                 action = str(body.get("action", "")).strip()
                 if not action:
@@ -834,6 +1455,16 @@ class RequestHandler(BaseHTTPRequestHandler):
                     return result.status_code, result.payload
 
                 status, response = self._with_run_lock(run_direct)
+                if action in ANALYSIS_ACTIONS:
+                    issues = collect_analysis_contradictions(response)
+                    if issues:
+                        status = HTTPStatus.CONFLICT
+                        response = make_error(
+                            "ANALYSIS_CONTRADICTION",
+                            "Deterministic blueprint analysis reported contradictions.",
+                            issues=issues,
+                            upstream=response,
+                        )
                 self._json_response(status, response)
                 log_event(
                     "direct_execute",
@@ -885,6 +1516,15 @@ class RequestHandler(BaseHTTPRequestHandler):
                     return result.status_code, result.payload
 
                 status, response = self._with_run_lock(run_plan)
+                issues = collect_analysis_contradictions(response)
+                if issues:
+                    status = HTTPStatus.CONFLICT
+                    response = make_error(
+                        "ANALYSIS_CONTRADICTION",
+                        "Plan execution reported analysis contradictions.",
+                        issues=issues,
+                        upstream=response,
+                    )
                 self._json_response(status, response)
                 log_event(
                     "run_plan",
@@ -1073,6 +1713,14 @@ class RequestHandler(BaseHTTPRequestHandler):
                             "unreal_status_code": result.status_code,
                             "replan_count": replan_count,
                         }
+                        issues = collect_analysis_contradictions(response)
+                        if issues:
+                            return HTTPStatus.CONFLICT, make_error(
+                                "ANALYSIS_CONTRADICTION",
+                                "LLM plan execution reported analysis contradictions.",
+                                issues=issues,
+                                result=response,
+                            )
                         return HTTPStatus.OK if result.status_code < 500 else HTTPStatus.BAD_GATEWAY, response
 
                     status, response = self._with_run_lock(run_command_plan)

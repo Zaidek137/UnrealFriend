@@ -60,6 +60,8 @@ class StubUnrealHandler(BaseHTTPRequestHandler):
                         {"name": "compile_blueprint", "description": "Compiles BP."},
                         {"name": "inspect_asset", "description": "Checks if asset exists."},
                         {"name": "inspect_blueprint_graph", "description": "Returns graph node inventory."},
+                        {"name": "analyze_blueprint_graph", "description": "Returns deterministic graph analysis."},
+                        {"name": "analyze_blueprint_asset", "description": "Returns deterministic asset analysis."},
                     ],
                 },
             )
@@ -87,6 +89,72 @@ class StubUnrealHandler(BaseHTTPRequestHandler):
             payload = {}
 
         if self.path == "/unreal-agent/v1/execute":
+            action = str(payload.get("action", "")).strip()
+            action_payload = payload.get("payload", {}) if isinstance(payload.get("payload", {}), dict) else {}
+            if action == "analyze_blueprint_graph":
+                blueprint_path = str(action_payload.get("blueprint_path", ""))
+                contradiction_mode = blueprint_path.endswith("BP_Bad")
+                graph_payload = {
+                    "blueprint": blueprint_path,
+                    "graph_name": "EventGraph",
+                    "total_nodes": 3,
+                    "returned_nodes": 3,
+                    "truncated": False,
+                    "nodes": [
+                        {
+                            "name": "K2Node_Event_BeginPlay",
+                            "title": "Event BeginPlay",
+                            "class": "/Script/BlueprintGraph.K2Node_Event",
+                            "pins": [
+                                {"name": "then", "direction": "output", "category": "exec", "links": 1},
+                            ],
+                        },
+                        {
+                            "name": "K2Node_CallFunction_PrintString",
+                            "title": "Print String",
+                            "class": "/Script/BlueprintGraph.K2Node_CallFunction",
+                            "pins": [
+                                {"name": "execute", "direction": "input", "category": "exec", "links": 1},
+                                {"name": "then", "direction": "output", "category": "exec", "links": 0},
+                                {"name": "In String", "direction": "input", "category": "string", "links": 0, "default_value": "Hi"},
+                            ],
+                        },
+                        {
+                            "name": "K2Node_IfThenElse_0",
+                            "title": "Branch",
+                            "class": "/Script/BlueprintGraph.K2Node_IfThenElse",
+                            "pins": [
+                                {"name": "Condition", "direction": "input", "category": "bool", "links": 1},
+                                {"name": "Then", "direction": "output", "category": "exec", "links": 1},
+                                {"name": "Else", "direction": "output", "category": "exec", "links": 1},
+                            ],
+                        },
+                    ],
+                    "entry_nodes": [{"node_name": "K2Node_Event_BeginPlay", "node_title": "Event BeginPlay"}],
+                    "exec_edges": [
+                        {"from_node": "K2Node_Event_BeginPlay", "from_pin": "then", "to_node": "K2Node_CallFunction_PrintString", "to_pin": "execute"},
+                    ],
+                    "path_traces": [],
+                    "dead_exec_outputs": [] if not contradiction_mode else [{"node_name": "K2Node_Event_BeginPlay", "pin_name": "then"}],
+                    "branch_guards": [{"node_name": "K2Node_IfThenElse_0", "then_links": 1, "else_links": 1}],
+                    "function_calls": [{"node_name": "K2Node_CallFunction_PrintString", "node_title": "Print String", "target": "self"}],
+                    "delays": [],
+                    "print_strings": [{"node_name": "K2Node_CallFunction_PrintString", "message": "Hi", "duration": "2.0"}],
+                    "enum_values": [],
+                    "constants": [],
+                    "contradictions": [] if not contradiction_mode else [{"type": "dead_exec_pin_has_outgoing_edge"}],
+                    "analysis_ok": not contradiction_mode,
+                }
+                self._send(
+                    HTTPStatus.OK,
+                    {
+                        "success": not contradiction_mode,
+                        "error_code": "OK" if not contradiction_mode else "ANALYSIS_CONTRADICTION",
+                        "message": "analysis ok" if not contradiction_mode else "analysis contradiction",
+                        "payload": graph_payload,
+                    },
+                )
+                return
             self._send(HTTPStatus.OK, {"success": True, "message": "execute ok", "payload": payload})
             return
         if self.path == "/unreal-agent/v1/run-plan":
@@ -283,6 +351,35 @@ def run() -> None:
 
         assert_true(AUDIT_LOG.exists(), "Expected audit log file")
         assert_true(AUDIT_LOG.read_text(encoding="utf-8").strip() != "", "Expected audit log to contain events")
+
+        status, analyzed = request_json(
+            "POST",
+            f"{base}/api/analyze",
+            {
+                "blueprint_path": "/Game/Test/BP_Good",
+                "mode": "graph",
+                "prompt": "Analyze this blueprint",
+            },
+        )
+        assert_true(status == HTTPStatus.OK, "Expected /api/analyze success for good graph")
+        assert_true(analyzed.get("success", False), "Expected analysis success")
+        report = analyzed.get("report", {})
+        claims = report.get("claims", []) if isinstance(report, dict) else []
+        assert_true(isinstance(claims, list) and len(claims) > 0, "Expected evidence-backed claims in report")
+        run_id = str(analyzed.get("run_id", ""))
+        assert_true(bool(run_id), "Expected analysis run_id artifact")
+
+        status, contradictory = request_json(
+            "POST",
+            f"{base}/api/analyze",
+            {
+                "blueprint_path": "/Game/Test/BP_Bad",
+                "mode": "graph",
+                "prompt": "Analyze this blueprint",
+            },
+        )
+        assert_true(status == HTTPStatus.CONFLICT, "Expected contradiction conflict for bad graph")
+        assert_true(contradictory.get("error_code") == "ANALYSIS_CONTRADICTION", "Expected ANALYSIS_CONTRADICTION")
 
         print("Smoke tests passed.")
     finally:
