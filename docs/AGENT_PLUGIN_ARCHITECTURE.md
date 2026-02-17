@@ -1,5 +1,7 @@
 # Ideal Unreal Agent Plugin Architecture
 
+Engine target for current rollout: **UE 5.7**.
+
 ## Goal
 
 Let an AI agent perform high-leverage Unreal creation tasks while staying safe, auditable, and reversible.
@@ -161,6 +163,10 @@ Response:
   - `inspect_blueprint_graph`
   - recipe/world/data/validation families:
     - `create_widget_blueprint`
+    - `modify_widget_tree`
+    - `bind_widget_events`
+    - `generate_widget_template`
+    - `analyze_widget_tree`
     - `create_objective_actor`
     - `wire_objective_progress`
     - `create_timer_system`
@@ -169,8 +175,29 @@ Response:
     - `batch_spawn_actors`
     - `layout_along_spline`
     - `create_level_chunk`
+    - `generate_layout_from_template`
+    - `scatter_assets_with_constraints`
+    - `clear_generated_layout_by_token`
     - `tag_and_group_actors`
+    - `list_asset_dependencies`
+    - `list_asset_referencers`
+    - `analyze_asset_impact`
+    - `analyze_project_hotspots`
     - `create_data_asset`
+    - `create_behavior_tree_asset`
+    - `edit_behavior_tree_asset`
+    - `create_blackboard_data_asset`
+    - `edit_blackboard_data_asset`
+    - `create_eqs_query_asset`
+    - `edit_eqs_query_asset`
+    - `create_anim_blueprint_asset`
+    - `edit_anim_blueprint_state_machine`
+    - `create_material_asset`
+    - `edit_material_asset`
+    - `create_niagara_system_asset`
+    - `edit_niagara_system_graph`
+    - `create_level_sequence_asset`
+    - `edit_level_sequence_asset`
     - `validate_data_schema`
     - `inspect_compile_errors`
     - `run_pie_scenario`
@@ -179,9 +206,92 @@ Response:
   - `modify_blueprint_graph` operations:
     - `add_print_string_on_begin_play`
     - `add_variable`
+    - `remove_variable`
     - `set_default`
     - `add_branch`
     - `call_function`
+    - `remove_function_call`
+    - `remove_nodes`
+    - `disconnect_pin`
+  - `blueprint_node_authoring` operations:
+    - `spawn_function_call`
+    - `replace_function_call`
+    - `spawn_custom_event`
+    - `spawn_branch_node`
+
+## Deterministic UMG Extensions
+
+- `modify_widget_tree` now supports additional widget classes:
+  - `ProgressBar`, `ScrollBox`, `UniformGridPanel`, `WrapBox`, `RichTextBlock`
+- `modify_widget_tree` slot handling supports:
+  - Canvas slot layout
+  - Vertical/Horizontal/Overlay alignment and padding
+  - Uniform grid row/column/span/alignment/padding
+- `modify_widget_tree` style/property support includes:
+  - `font_family`, `font_size`, `font_weight`
+  - `text_color`, `brush_tint`
+  - `padding`/`margins`
+  - `alignment_preset`
+- `bind_widget_events` supports action modes:
+  - `call_function`
+  - `dispatch_event` (function-call fallback path)
+  - `toggle_visibility`
+  - `set_text`
+  - `set_progress`
+
+## New Action Contracts (Summary)
+
+- `generate_widget_template`
+  - request: `{"widget_blueprint","template_id","style_preset","bindings[]?","compile_after?"}`
+  - response payload: template operations + binding summary
+- `analyze_widget_tree`
+  - request: `{"widget_blueprint"}`
+  - response payload: widget inventory, lint findings, binding completeness
+- `list_asset_dependencies`
+  - request: `{"asset_path","depth?"}`
+  - response payload: `dependencies[]`, count
+- `list_asset_referencers`
+  - request: `{"asset_path","depth?"}`
+  - response payload: `referencers[]`, count
+- `analyze_asset_impact`
+  - request: `{"asset_path","change_type?","depth?"}`
+  - response payload: dependencies/referencers + risk flags/score
+- `analyze_project_hotspots`
+  - request: `{"package_path?","recursive?","max_assets?"}`
+  - response payload: hotspot items with deterministic risk scores
+- `generate_layout_from_template`
+  - request: `{"layout_id","origin?","rows?","cols?","spacing?","class_path?","static_mesh_path?","folder_path?","tags?"}`
+  - response payload: spawn summary from selected generator
+- `scatter_assets_with_constraints`
+  - request: `{"bounds","count?","seed?","class_path?","static_mesh_path?","folder_path?","tags?"}`
+  - response payload: batch spawn results
+- `clear_generated_layout_by_token`
+  - request: `{"cleanup_token"}`
+  - response payload: delete summary
+- `create_behavior_tree_asset`
+  - request: `{"asset_name?","package_path?","asset_class_path?","factory_class_path?"}`
+  - response payload: created native asset descriptor
+- `edit_behavior_tree_asset`
+  - request: `{"behavior_tree_path|asset_path","blackboard_path?","root_class_path?","tasks[]?"}`
+  - response payload: root/task topology summary
+- `create_blackboard_data_asset` / `edit_blackboard_data_asset`
+  - request: blackboard create + deterministic key schema mutations (`keys[]`, `replace_existing?`)
+  - response payload: schema change counts
+- `create_eqs_query_asset` / `edit_eqs_query_asset`
+  - request: EQS create + deterministic option/generator/test scaffolding
+  - response payload: options/tests created summary
+- `create_anim_blueprint_asset` / `edit_anim_blueprint_state_machine`
+  - request: anim blueprint scaffold + deterministic state-machine helper states
+  - response payload: generated state scaffolding summary
+- `create_material_asset` / `edit_material_asset`
+  - request: material create + deterministic property edits (`two_sided`, `blend_mode`, `shading_model`)
+  - response payload: applied property summary
+- `create_niagara_system_asset` / `edit_niagara_system_graph`
+  - request: Niagara system create + deterministic graph/system seed settings
+  - response payload: seed + mutation summary
+- `create_level_sequence_asset` / `edit_level_sequence_asset`
+  - request: sequence create + deterministic playback scaffold edits
+  - response payload: playback edit summary
 - Plan runner:
   - executes ordered `steps[]`
   - optional `compile_blueprints[]` post-phase

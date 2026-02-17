@@ -13,6 +13,7 @@
 #include "HttpPath.h"
 #include "HttpServerModule.h"
 #include "IHttpRouter.h"
+#include "Math/RandomStream.h"
 #include "Misc/CommandLine.h"
 #include "Misc/EngineVersion.h"
 #include "Misc/FileHelper.h"
@@ -435,6 +436,22 @@ static TArray<TSharedPtr<FJsonValue>> BuildRecipeCatalog()
         {
             MakeInput(TEXT("namespace_root"), TEXT("string"), TEXT("Asset namespace root under /Game."), false, TEXT("/Game/AgentGenerated"))
         });
+    MakeRecipe(
+        TEXT("sky_objective_jump_loop_sp"),
+        TEXT("Builds a sky platform jump loop with random objective placement and unified roll-dash timing scaffold."),
+        {
+            MakeInput(TEXT("namespace_root"), TEXT("string"), TEXT("Asset namespace root under /Game."), false, TEXT("/Game/AgentGenerated")),
+            MakeInput(TEXT("controller_asset_name"), TEXT("string"), TEXT("Loop controller blueprint name."), false, TEXT("BP_SkyObjectiveLoopController")),
+            MakeInput(TEXT("platform_rows"), TEXT("integer"), TEXT("Number of platform rows."), false, TEXT("20")),
+            MakeInput(TEXT("platform_cols"), TEXT("integer"), TEXT("Number of platform columns."), false, TEXT("20")),
+            MakeInput(TEXT("platform_spacing"), TEXT("number"), TEXT("Spacing between platforms."), false, TEXT("900.0")),
+            MakeInput(TEXT("sky_height"), TEXT("number"), TEXT("Base world height for all platforms."), false, TEXT("4500.0")),
+            MakeInput(TEXT("objective_count"), TEXT("integer"), TEXT("Number of objective actors to place."), false, TEXT("5")),
+            MakeInput(TEXT("random_seed"), TEXT("integer"), TEXT("Deterministic seed for objective placement."), false, TEXT("1337")),
+            MakeInput(TEXT("roll_dash_combo_window_sec"), TEXT("number"), TEXT("Roll-to-dash combo timing window in seconds."), false, TEXT("1.0")),
+            MakeInput(TEXT("player_character_blueprint_path"), TEXT("string"), TEXT("Optional player character blueprint path to inject legacy-disable flags."), false, TEXT("")),
+            MakeInput(TEXT("disable_legacy_roll_dash_cpp"), TEXT("boolean"), TEXT("Set true to add legacy roll/dash disable flags in character blueprint."), false, TEXT("true"))
+        });
 
     return Out;
 }
@@ -530,6 +547,58 @@ static bool BuildPlanFromRecipeRequest(
         CreateWidget->SetStringField(TEXT("package_path"), UiPath);
         CreateWidget->SetStringField(TEXT("parent_class"), TEXT("/Script/UMG.UserWidget"));
         AddStep(Steps, TEXT("create_hud_widget"), TEXT("create_widget_blueprint"), CreateWidget);
+
+        TSharedRef<FJsonObject> ModifyWidgetTree = MakeShared<FJsonObject>();
+        ModifyWidgetTree->SetStringField(TEXT("widget_blueprint"), UiPath / WidgetAsset);
+        TArray<TSharedPtr<FJsonValue>> WidgetOps;
+        {
+            TSharedRef<FJsonObject> EnsureRoot = MakeShared<FJsonObject>();
+            EnsureRoot->SetStringField(TEXT("op"), TEXT("ensure_root"));
+            EnsureRoot->SetStringField(TEXT("widget_class"), TEXT("CanvasPanel"));
+            EnsureRoot->SetStringField(TEXT("name"), TEXT("Root"));
+            WidgetOps.Add(MakeShared<FJsonValueObject>(EnsureRoot));
+        }
+        {
+            TSharedRef<FJsonObject> AddText = MakeShared<FJsonObject>();
+            AddText->SetStringField(TEXT("op"), TEXT("add_widget"));
+            AddText->SetStringField(TEXT("widget_class"), TEXT("TextBlock"));
+            AddText->SetStringField(TEXT("name"), TEXT("ObjectiveCounterText"));
+            AddText->SetStringField(TEXT("parent"), TEXT("Root"));
+            AddText->SetStringField(TEXT("text"), TEXT("Objectives: 0/0"));
+            AddText->SetArrayField(TEXT("position"), {MakeShared<FJsonValueNumber>(40.0), MakeShared<FJsonValueNumber>(40.0)});
+            AddText->SetArrayField(TEXT("size"), {MakeShared<FJsonValueNumber>(320.0), MakeShared<FJsonValueNumber>(48.0)});
+            AddText->SetNumberField(TEXT("z_order"), 10.0);
+            WidgetOps.Add(MakeShared<FJsonValueObject>(AddText));
+        }
+        {
+            TSharedRef<FJsonObject> AddButton = MakeShared<FJsonObject>();
+            AddButton->SetStringField(TEXT("op"), TEXT("add_widget"));
+            AddButton->SetStringField(TEXT("widget_class"), TEXT("Button"));
+            AddButton->SetStringField(TEXT("name"), TEXT("DebugActionButton"));
+            AddButton->SetStringField(TEXT("parent"), TEXT("Root"));
+            AddButton->SetArrayField(TEXT("position"), {MakeShared<FJsonValueNumber>(40.0), MakeShared<FJsonValueNumber>(100.0)});
+            AddButton->SetArrayField(TEXT("size"), {MakeShared<FJsonValueNumber>(180.0), MakeShared<FJsonValueNumber>(44.0)});
+            AddButton->SetNumberField(TEXT("z_order"), 9.0);
+            WidgetOps.Add(MakeShared<FJsonValueObject>(AddButton));
+        }
+        ModifyWidgetTree->SetArrayField(TEXT("operations"), WidgetOps);
+        ModifyWidgetTree->SetBoolField(TEXT("compile_after"), true);
+        AddStep(Steps, TEXT("seed_hud_widget"), TEXT("modify_widget_tree"), ModifyWidgetTree);
+
+        TSharedRef<FJsonObject> BindWidgetEvents = MakeShared<FJsonObject>();
+        BindWidgetEvents->SetStringField(TEXT("widget_blueprint"), UiPath / WidgetAsset);
+        TArray<TSharedPtr<FJsonValue>> Bindings;
+        {
+            TSharedRef<FJsonObject> Binding = MakeShared<FJsonObject>();
+            Binding->SetStringField(TEXT("widget"), TEXT("DebugActionButton"));
+            Binding->SetStringField(TEXT("event"), TEXT("OnClicked"));
+            Binding->SetStringField(TEXT("action"), TEXT("print_string"));
+            Binding->SetStringField(TEXT("message"), TEXT("DebugActionButton clicked"));
+            Bindings.Add(MakeShared<FJsonValueObject>(Binding));
+        }
+        BindWidgetEvents->SetArrayField(TEXT("bindings"), Bindings);
+        BindWidgetEvents->SetBoolField(TEXT("compile_after"), true);
+        AddStep(Steps, TEXT("bind_hud_events"), TEXT("bind_widget_events"), BindWidgetEvents);
 
         int32 ObjectiveCount = 3;
         double ObjectiveCountNumber = static_cast<double>(ObjectiveCount);
@@ -657,6 +726,325 @@ static bool BuildPlanFromRecipeRequest(
         RowObject->SetStringField(TEXT("DisplayName"), TEXT("Agent Asset Pack"));
         ValidateSchema->SetObjectField(TEXT("row"), RowObject);
         AddStep(Steps, TEXT("validate_schema"), TEXT("validate_data_schema"), ValidateSchema);
+    }
+    else if (RecipeId == TEXT("sky_objective_jump_loop_sp"))
+    {
+        FString ControllerAsset = TEXT("BP_SkyObjectiveLoopController");
+        Inputs->TryGetStringField(TEXT("controller_asset_name"), ControllerAsset);
+        const FString ControllerPath = GameplayPath / ControllerAsset;
+
+        int32 PlatformRows = 20;
+        int32 PlatformCols = 20;
+        int32 ObjectiveCount = 5;
+        int32 RandomSeed = 1337;
+        double PlatformRowsNumber = static_cast<double>(PlatformRows);
+        double PlatformColsNumber = static_cast<double>(PlatformCols);
+        double ObjectiveCountNumber = static_cast<double>(ObjectiveCount);
+        double RandomSeedNumber = static_cast<double>(RandomSeed);
+        Inputs->TryGetNumberField(TEXT("platform_rows"), PlatformRowsNumber);
+        Inputs->TryGetNumberField(TEXT("platform_cols"), PlatformColsNumber);
+        Inputs->TryGetNumberField(TEXT("objective_count"), ObjectiveCountNumber);
+        Inputs->TryGetNumberField(TEXT("random_seed"), RandomSeedNumber);
+        PlatformRows = FMath::Clamp(static_cast<int32>(PlatformRowsNumber), 3, 32);
+        PlatformCols = FMath::Clamp(static_cast<int32>(PlatformColsNumber), 3, 32);
+        ObjectiveCount = FMath::Clamp(static_cast<int32>(ObjectiveCountNumber), 1, 25);
+        RandomSeed = static_cast<int32>(RandomSeedNumber);
+
+        double PlatformSpacing = 900.0;
+        double SkyHeight = 4500.0;
+        double ComboWindowSec = 1.0;
+        Inputs->TryGetNumberField(TEXT("platform_spacing"), PlatformSpacing);
+        Inputs->TryGetNumberField(TEXT("sky_height"), SkyHeight);
+        Inputs->TryGetNumberField(TEXT("roll_dash_combo_window_sec"), ComboWindowSec);
+        PlatformSpacing = FMath::Clamp(PlatformSpacing, 250.0, 2500.0);
+        SkyHeight = FMath::Clamp(SkyHeight, 800.0, 12000.0);
+        ComboWindowSec = FMath::Clamp(ComboWindowSec, 0.2, 2.0);
+
+        FString CharacterBlueprintPath;
+        Inputs->TryGetStringField(TEXT("player_character_blueprint_path"), CharacterBlueprintPath);
+        bool bDisableLegacyRollDashCpp = true;
+        Inputs->TryGetBoolField(TEXT("disable_legacy_roll_dash_cpp"), bDisableLegacyRollDashCpp);
+
+        TSharedRef<FJsonObject> CreateController = MakeShared<FJsonObject>();
+        CreateController->SetStringField(TEXT("asset_name"), ControllerAsset);
+        CreateController->SetStringField(TEXT("package_path"), GameplayPath);
+        CreateController->SetStringField(TEXT("parent_class"), TEXT("/Script/Engine.Actor"));
+        AddStep(Steps, TEXT("create_loop_controller"), TEXT("create_blueprint"), CreateController);
+
+        auto AddControllerVariableStep =
+            [&Steps, &ControllerPath](const FString& StepId, const FString& VariableName, const FString& VariableType, const FString& DefaultValue, const FString& Category)
+        {
+            TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
+            Payload->SetStringField(TEXT("blueprint_path"), ControllerPath);
+            Payload->SetStringField(TEXT("operation"), TEXT("add_variable"));
+            Payload->SetStringField(TEXT("variable_name"), VariableName);
+            Payload->SetStringField(TEXT("variable_type"), VariableType);
+            Payload->SetStringField(TEXT("default_value"), DefaultValue);
+            Payload->SetStringField(TEXT("category"), Category);
+            Payload->SetBoolField(TEXT("compile_after"), false);
+            AddStep(Steps, StepId, TEXT("modify_blueprint_graph"), Payload);
+        };
+
+        AddControllerVariableStep(
+            TEXT("var_objective_required"),
+            TEXT("ObjectiveCountRequired"),
+            TEXT("int"),
+            FString::FromInt(ObjectiveCount),
+            TEXT("ObjectiveLoop")
+        );
+        AddControllerVariableStep(TEXT("var_objective_collected"), TEXT("ObjectivesCollected"), TEXT("int"), TEXT("0"), TEXT("ObjectiveLoop"));
+        AddControllerVariableStep(TEXT("var_unified_move_enabled"), TEXT("bUseUnifiedRollDashInput"), TEXT("bool"), TEXT("true"), TEXT("MovementCombo"));
+        AddControllerVariableStep(
+            TEXT("var_combo_window"),
+            TEXT("RollDashComboWindowSec"),
+            TEXT("float"),
+            FString::SanitizeFloat(ComboWindowSec),
+            TEXT("MovementCombo")
+        );
+        AddControllerVariableStep(TEXT("var_roll_buffer"), TEXT("bRollTriggeredAfterLanding"), TEXT("bool"), TEXT("false"), TEXT("MovementCombo"));
+        AddControllerVariableStep(TEXT("var_dash_buffer"), TEXT("bDashQueuedWithinWindow"), TEXT("bool"), TEXT("false"), TEXT("MovementCombo"));
+        AddControllerVariableStep(TEXT("var_last_roll_time"), TEXT("LastRollInputTimestamp"), TEXT("float"), TEXT("-1000.0"), TEXT("MovementCombo"));
+
+        TSharedRef<FJsonObject> CallPrint = MakeShared<FJsonObject>();
+        CallPrint->SetStringField(TEXT("blueprint_path"), ControllerPath);
+        CallPrint->SetStringField(TEXT("operation"), TEXT("call_function"));
+        CallPrint->SetStringField(TEXT("class_path"), TEXT("/Script/Engine.KismetSystemLibrary"));
+        CallPrint->SetStringField(TEXT("function_name"), TEXT("PrintString"));
+        CallPrint->SetStringField(TEXT("exec_source"), TEXT("begin_play"));
+        TSharedRef<FJsonObject> PrintInputs = MakeShared<FJsonObject>();
+        PrintInputs->SetStringField(TEXT("InString"), TEXT("Unified roll->dash combo scaffold active"));
+        CallPrint->SetObjectField(TEXT("inputs"), PrintInputs);
+        CallPrint->SetBoolField(TEXT("compile_after"), false);
+        AddStep(Steps, TEXT("init_combo_debug"), TEXT("modify_blueprint_graph"), CallPrint);
+
+        TSharedRef<FJsonObject> ClearSkyStartPlatform = MakeShared<FJsonObject>();
+        ClearSkyStartPlatform->SetStringField(TEXT("label_contains"), TEXT("SkyStartPlatform"));
+        AddStep(Steps, TEXT("clear_existing_sky_start_platform"), TEXT("delete_actors_by_filter"), ClearSkyStartPlatform);
+
+        TSharedRef<FJsonObject> ClearSkyPlatforms = MakeShared<FJsonObject>();
+        ClearSkyPlatforms->SetStringField(TEXT("label_contains"), TEXT("SkyPlatform_"));
+        AddStep(Steps, TEXT("clear_existing_sky_platforms"), TEXT("delete_actors_by_filter"), ClearSkyPlatforms);
+
+        TSharedRef<FJsonObject> ClearSkyTowers = MakeShared<FJsonObject>();
+        ClearSkyTowers->SetStringField(TEXT("label_contains"), TEXT("SkyTower_"));
+        AddStep(Steps, TEXT("clear_existing_sky_towers"), TEXT("delete_actors_by_filter"), ClearSkyTowers);
+
+        TSharedRef<FJsonObject> ClearSkyObjectives = MakeShared<FJsonObject>();
+        ClearSkyObjectives->SetStringField(TEXT("label_contains"), TEXT("SkyObjective_"));
+        AddStep(Steps, TEXT("clear_existing_sky_objectives"), TEXT("delete_actors_by_filter"), ClearSkyObjectives);
+
+        TSharedRef<FJsonObject> StartPlatform = MakeShared<FJsonObject>();
+        StartPlatform->SetStringField(TEXT("class_path"), TEXT("/Script/Engine.StaticMeshActor"));
+        StartPlatform->SetStringField(TEXT("actor_label"), TEXT("SkyStartPlatform"));
+        StartPlatform->SetStringField(TEXT("folder_path"), TEXT("AgentGenerated/SkyPlatforms"));
+        StartPlatform->SetStringField(TEXT("static_mesh_path"), TEXT("/Engine/BasicShapes/Cube.Cube"));
+        StartPlatform->SetArrayField(TEXT("location"), {MakeShared<FJsonValueNumber>(0.0), MakeShared<FJsonValueNumber>(0.0), MakeShared<FJsonValueNumber>(SkyHeight)});
+        StartPlatform->SetArrayField(TEXT("scale"), {MakeShared<FJsonValueNumber>(30.0), MakeShared<FJsonValueNumber>(30.0), MakeShared<FJsonValueNumber>(1.5)});
+        StartPlatform->SetArrayField(
+            TEXT("tags"),
+            {MakeShared<FJsonValueString>(TEXT("StartPlatform")), MakeShared<FJsonValueString>(TEXT("SkyPlatform"))}
+        );
+        AddStep(Steps, TEXT("spawn_start_platform"), TEXT("spawn_actor"), StartPlatform);
+
+        TSharedRef<FJsonObject> ClearPlayerStarts = MakeShared<FJsonObject>();
+        ClearPlayerStarts->SetStringField(TEXT("label_contains"), TEXT("PlayerStart"));
+        AddStep(Steps, TEXT("clear_existing_player_starts"), TEXT("delete_actors_by_filter"), ClearPlayerStarts);
+
+        TSharedRef<FJsonObject> CenterPlayerStart = MakeShared<FJsonObject>();
+        CenterPlayerStart->SetStringField(TEXT("class_path"), TEXT("/Script/Engine.PlayerStart"));
+        CenterPlayerStart->SetStringField(TEXT("actor_label"), TEXT("PlayerStart_SkyCenter"));
+        CenterPlayerStart->SetStringField(TEXT("folder_path"), TEXT("AgentGenerated/Spawn"));
+        CenterPlayerStart->SetArrayField(TEXT("location"), {MakeShared<FJsonValueNumber>(0.0), MakeShared<FJsonValueNumber>(0.0), MakeShared<FJsonValueNumber>(SkyHeight + 240.0)});
+        CenterPlayerStart->SetArrayField(TEXT("rotation"), {MakeShared<FJsonValueNumber>(0.0), MakeShared<FJsonValueNumber>(0.0), MakeShared<FJsonValueNumber>(0.0)});
+        CenterPlayerStart->SetArrayField(TEXT("scale"), {MakeShared<FJsonValueNumber>(1.0), MakeShared<FJsonValueNumber>(1.0), MakeShared<FJsonValueNumber>(1.0)});
+        CenterPlayerStart->SetArrayField(
+            TEXT("tags"),
+            {MakeShared<FJsonValueString>(TEXT("SkyPlayerStart")), MakeShared<FJsonValueString>(TEXT("StartPlatform"))}
+        );
+        AddStep(Steps, TEXT("spawn_center_player_start"), TEXT("spawn_actor"), CenterPlayerStart);
+
+        const float OriginX = -0.5f * static_cast<float>(PlatformCols - 1) * static_cast<float>(PlatformSpacing);
+        const float OriginY = -0.5f * static_cast<float>(PlatformRows - 1) * static_cast<float>(PlatformSpacing);
+
+        TArray<TSharedPtr<FJsonValue>> PlatformActors;
+        PlatformActors.Reserve(PlatformRows * PlatformCols);
+        for (int32 Row = 0; Row < PlatformRows; ++Row)
+        {
+            for (int32 Col = 0; Col < PlatformCols; ++Col)
+            {
+                const float X = OriginX + static_cast<float>(Col) * static_cast<float>(PlatformSpacing);
+                const float Y = OriginY + static_cast<float>(Row) * static_cast<float>(PlatformSpacing);
+                TSharedRef<FJsonObject> Platform = MakeShared<FJsonObject>();
+                Platform->SetStringField(TEXT("class_path"), TEXT("/Script/Engine.StaticMeshActor"));
+                Platform->SetStringField(TEXT("actor_label"), FString::Printf(TEXT("SkyPlatform_%02d_%02d"), Row + 1, Col + 1));
+                Platform->SetStringField(TEXT("folder_path"), TEXT("AgentGenerated/SkyPlatforms/Grid"));
+                Platform->SetStringField(TEXT("static_mesh_path"), TEXT("/Engine/BasicShapes/Cube.Cube"));
+                Platform->SetArrayField(
+                    TEXT("location"),
+                    {MakeShared<FJsonValueNumber>(X), MakeShared<FJsonValueNumber>(Y), MakeShared<FJsonValueNumber>(SkyHeight)}
+                );
+                Platform->SetArrayField(
+                    TEXT("scale"),
+                    {MakeShared<FJsonValueNumber>(4.0), MakeShared<FJsonValueNumber>(4.0), MakeShared<FJsonValueNumber>(0.6)}
+                );
+                Platform->SetArrayField(TEXT("tags"), {MakeShared<FJsonValueString>(TEXT("SkyPlatform"))});
+                PlatformActors.Add(MakeShared<FJsonValueObject>(Platform));
+            }
+        }
+
+        TSharedRef<FJsonObject> BatchPlatforms = MakeShared<FJsonObject>();
+        BatchPlatforms->SetArrayField(TEXT("actors"), PlatformActors);
+        AddStep(Steps, TEXT("spawn_sky_platform_grid"), TEXT("batch_spawn_actors"), BatchPlatforms);
+
+        const double TowerScaleZ = FMath::Max(1.0, SkyHeight / 100.0);
+        TArray<TSharedPtr<FJsonValue>> TowerActors;
+        TowerActors.Reserve(PlatformRows * PlatformCols);
+        for (int32 Row = 0; Row < PlatformRows; ++Row)
+        {
+            for (int32 Col = 0; Col < PlatformCols; ++Col)
+            {
+                const float X = OriginX + static_cast<float>(Col) * static_cast<float>(PlatformSpacing);
+                const float Y = OriginY + static_cast<float>(Row) * static_cast<float>(PlatformSpacing);
+                TSharedRef<FJsonObject> Tower = MakeShared<FJsonObject>();
+                Tower->SetStringField(TEXT("class_path"), TEXT("/Script/Engine.StaticMeshActor"));
+                Tower->SetStringField(TEXT("actor_label"), FString::Printf(TEXT("SkyTower_%02d_%02d"), Row + 1, Col + 1));
+                Tower->SetStringField(TEXT("folder_path"), TEXT("AgentGenerated/SkyPlatforms/Towers"));
+                Tower->SetStringField(TEXT("static_mesh_path"), TEXT("/Engine/BasicShapes/Cube.Cube"));
+                Tower->SetArrayField(
+                    TEXT("location"),
+                    {MakeShared<FJsonValueNumber>(X), MakeShared<FJsonValueNumber>(Y), MakeShared<FJsonValueNumber>(SkyHeight * 0.5)}
+                );
+                Tower->SetArrayField(
+                    TEXT("scale"),
+                    {MakeShared<FJsonValueNumber>(1.6), MakeShared<FJsonValueNumber>(1.6), MakeShared<FJsonValueNumber>(TowerScaleZ)}
+                );
+                Tower->SetArrayField(
+                    TEXT("tags"),
+                    {MakeShared<FJsonValueString>(TEXT("SkyTower")), MakeShared<FJsonValueString>(TEXT("SkyPlatformSupport"))}
+                );
+                TowerActors.Add(MakeShared<FJsonValueObject>(Tower));
+            }
+        }
+
+        TSharedRef<FJsonObject> BatchTowers = MakeShared<FJsonObject>();
+        BatchTowers->SetArrayField(TEXT("actors"), TowerActors);
+        AddStep(Steps, TEXT("spawn_sky_tower_supports"), TEXT("batch_spawn_actors"), BatchTowers);
+
+        const int32 TotalCells = PlatformRows * PlatformCols;
+        ObjectiveCount = FMath::Clamp(ObjectiveCount, 1, FMath::Max(1, TotalCells));
+        FRandomStream Stream(RandomSeed);
+        TArray<int32> CellIndices;
+        CellIndices.Reserve(TotalCells);
+        for (int32 Cell = 0; Cell < TotalCells; ++Cell)
+        {
+            CellIndices.Add(Cell);
+        }
+        // Keep objectives off the primary start platform cell when center exists.
+        if ((PlatformRows % 2) == 1 && (PlatformCols % 2) == 1)
+        {
+            const int32 CenterRow = PlatformRows / 2;
+            const int32 CenterCol = PlatformCols / 2;
+            const int32 CenterCell = CenterRow * PlatformCols + CenterCol;
+            CellIndices.Remove(CenterCell);
+        }
+        if (CellIndices.Num() <= 0)
+        {
+            CellIndices.Add(0);
+        }
+        ObjectiveCount = FMath::Clamp(ObjectiveCount, 1, CellIndices.Num());
+        for (int32 i = 0; i < ObjectiveCount; ++i)
+        {
+            const int32 SwapIndex = Stream.RandRange(i, CellIndices.Num() - 1);
+            CellIndices.Swap(i, SwapIndex);
+        }
+
+        for (int32 i = 0; i < ObjectiveCount; ++i)
+        {
+            const int32 Cell = CellIndices[i];
+            const int32 Row = Cell / PlatformCols;
+            const int32 Col = Cell % PlatformCols;
+            const float X = OriginX + static_cast<float>(Col) * static_cast<float>(PlatformSpacing);
+            const float Y = OriginY + static_cast<float>(Row) * static_cast<float>(PlatformSpacing);
+
+            TSharedRef<FJsonObject> Objective = MakeShared<FJsonObject>();
+            Objective->SetStringField(TEXT("actor_label"), FString::Printf(TEXT("SkyObjective_%02d"), i + 1));
+            Objective->SetStringField(TEXT("folder_path"), TEXT("AgentGenerated/Objectives"));
+            Objective->SetStringField(TEXT("class_path"), TEXT("/Script/Engine.StaticMeshActor"));
+            Objective->SetStringField(TEXT("static_mesh_path"), TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+            Objective->SetArrayField(
+                TEXT("location"),
+                {
+                    MakeShared<FJsonValueNumber>(X),
+                    MakeShared<FJsonValueNumber>(Y),
+                    MakeShared<FJsonValueNumber>(SkyHeight + 140.0)
+                });
+            Objective->SetArrayField(
+                TEXT("scale"),
+                {
+                    MakeShared<FJsonValueNumber>(0.6),
+                    MakeShared<FJsonValueNumber>(0.6),
+                    MakeShared<FJsonValueNumber>(0.6)
+                });
+            Objective->SetArrayField(
+                TEXT("tags"),
+                {MakeShared<FJsonValueString>(TEXT("ObjectiveItem")), MakeShared<FJsonValueString>(TEXT("SkyObjective"))}
+            );
+            AddStep(Steps, FString::Printf(TEXT("spawn_objective_%d"), i + 1), TEXT("create_objective_actor"), Objective);
+        }
+
+        TSharedRef<FJsonObject> AssertStart = MakeShared<FJsonObject>();
+        AssertStart->SetArrayField(TEXT("required_tags"), {MakeShared<FJsonValueString>(TEXT("StartPlatform"))});
+        AssertStart->SetNumberField(TEXT("min_count"), 1);
+        AddStep(Steps, TEXT("assert_start_platform"), TEXT("assert_world_state"), AssertStart);
+
+        TSharedRef<FJsonObject> AssertPlayerStart = MakeShared<FJsonObject>();
+        AssertPlayerStart->SetArrayField(TEXT("required_tags"), {MakeShared<FJsonValueString>(TEXT("SkyPlayerStart"))});
+        AssertPlayerStart->SetNumberField(TEXT("min_count"), 1);
+        AddStep(Steps, TEXT("assert_center_player_start"), TEXT("assert_world_state"), AssertPlayerStart);
+
+        TSharedRef<FJsonObject> AssertObjectives = MakeShared<FJsonObject>();
+        AssertObjectives->SetArrayField(TEXT("required_tags"), {MakeShared<FJsonValueString>(TEXT("ObjectiveItem"))});
+        AssertObjectives->SetNumberField(TEXT("min_count"), ObjectiveCount);
+        AddStep(Steps, TEXT("assert_objectives"), TEXT("assert_world_state"), AssertObjectives);
+
+        CompileBlueprints.Add(MakeShared<FJsonValueString>(ControllerPath));
+
+        if (!CharacterBlueprintPath.IsEmpty())
+        {
+            auto AddCharacterVariableStep =
+                [&Steps, &CharacterBlueprintPath](const FString& StepId, const FString& VariableName, const FString& VariableType, const FString& DefaultValue, const FString& Category)
+            {
+                TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
+                Payload->SetStringField(TEXT("blueprint_path"), CharacterBlueprintPath);
+                Payload->SetStringField(TEXT("operation"), TEXT("add_variable"));
+                Payload->SetStringField(TEXT("variable_name"), VariableName);
+                Payload->SetStringField(TEXT("variable_type"), VariableType);
+                Payload->SetStringField(TEXT("default_value"), DefaultValue);
+                Payload->SetStringField(TEXT("category"), Category);
+                Payload->SetBoolField(TEXT("compile_after"), false);
+                AddStep(Steps, StepId, TEXT("modify_blueprint_graph"), Payload);
+            };
+
+            AddCharacterVariableStep(TEXT("char_unified_combo_enabled"), TEXT("bUseUnifiedRollDashInput"), TEXT("bool"), TEXT("true"), TEXT("MovementCombo"));
+            AddCharacterVariableStep(
+                TEXT("char_combo_window_sec"),
+                TEXT("RollDashComboWindowSec"),
+                TEXT("float"),
+                FString::SanitizeFloat(ComboWindowSec),
+                TEXT("MovementCombo")
+            );
+            AddCharacterVariableStep(TEXT("char_roll_landing_flag"), TEXT("bRollTriggeredAfterLanding"), TEXT("bool"), TEXT("false"), TEXT("MovementCombo"));
+            AddCharacterVariableStep(TEXT("char_dash_window_flag"), TEXT("bDashQueuedWithinWindow"), TEXT("bool"), TEXT("false"), TEXT("MovementCombo"));
+            AddCharacterVariableStep(TEXT("char_last_roll_time"), TEXT("LastRollInputTimestamp"), TEXT("float"), TEXT("-1000.0"), TEXT("MovementCombo"));
+            if (bDisableLegacyRollDashCpp)
+            {
+                AddCharacterVariableStep(TEXT("char_disable_legacy_roll"), TEXT("bDisableLegacyRoll"), TEXT("bool"), TEXT("true"), TEXT("LegacyMovement"));
+                AddCharacterVariableStep(TEXT("char_disable_legacy_dash"), TEXT("bDisableLegacyDash"), TEXT("bool"), TEXT("true"), TEXT("LegacyMovement"));
+                AddCharacterVariableStep(TEXT("char_disable_legacy_cpp"), TEXT("bDisableLegacyRollDashCpp"), TEXT("bool"), TEXT("true"), TEXT("LegacyMovement"));
+            }
+
+            CompileBlueprints.Add(MakeShared<FJsonValueString>(CharacterBlueprintPath));
+        }
     }
     else
     {

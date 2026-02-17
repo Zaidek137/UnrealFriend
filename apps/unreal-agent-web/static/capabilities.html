@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Unreal Friend Capabilities</title>
+    <style>
+      :root {
+        --bg: #0f151d;
+        --panel: #172231;
+        --panel-2: #101923;
+        --text: #e9f1fa;
+        --muted: #9fb2c6;
+        --accent: #37a7ff;
+        --border: #2a3a4f;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: var(--text);
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at 8% 10%, #203043 0%, transparent 28%),
+          radial-gradient(circle at 90% 6%, #1b3731 0%, transparent 35%),
+          var(--bg);
+      }
+      .wrap {
+        max-width: 1180px;
+        margin: 26px auto;
+        padding: 0 14px 28px;
+      }
+      .hero {
+        background: linear-gradient(180deg, var(--panel), var(--panel-2));
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 18px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 34px;
+        line-height: 1.15;
+      }
+      .lead {
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+        max-width: 820px;
+      }
+      .top-actions {
+        margin-top: 14px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .top-actions a {
+        color: #e5f3ff;
+        text-decoration: none;
+        border: 1px solid var(--border);
+        background: #142131;
+        border-radius: 10px;
+        padding: 8px 12px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .top-actions a:hover {
+        border-color: #3f6489;
+        background: #182a3e;
+      }
+      .sections {
+        margin-top: 14px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .card {
+        background: linear-gradient(180deg, #152131, #0f1824);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px;
+      }
+      .card h2 {
+        margin: 0 0 6px;
+        font-size: 16px;
+        letter-spacing: 0.2px;
+      }
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.45;
+      }
+      .accent {
+        color: #89d1ff;
+      }
+      .foot {
+        margin-top: 14px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      @media (max-width: 980px) {
+        .sections { grid-template-columns: 1fr; }
+        h1 { font-size: 30px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <section class="hero">
+        <h1>What your Unreal Friend can do</h1>
+        <p class="lead">
+          This tool is built for agent-first Unreal development. It can create, wire, analyze, validate, and refactor
+          gameplay systems with deterministic execution paths and safety gates.
+        </p>
+        <div class="top-actions">
+          <a href="/">Open Agent Chat</a>
+          <a href="/api/node-control-capabilities">View Live Capability API</a>
+          <a href="/api/control-surface-catalog">View Control Surfaces</a>
+        </div>
+      </section>
+
+      <section class="sections">
+        <article class="card">
+          <h2>Blueprint Node And Graph Authoring</h2>
+          <p>
+            Create variables, functions, macros, custom events, branches, and pin wiring. Authoring is exposed through
+            deterministic operations so agents can build full graph workflows with less manual cleanup.
+          </p>
+        </article>
+
+        <article class="card">
+          <h2>Native Unreal Asset Authoring</h2>
+          <p>
+            Build and edit <span class="accent">Behavior Trees, Blackboard data, EQS queries, AnimBlueprint scaffolds,
+            Materials, Niagara systems, and Level Sequences</span> through direct editor actions.
+          </p>
+        </article>
+
+        <article class="card">
+          <h2>UMG And UI Generation</h2>
+          <p>
+            Generate widget trees from templates, apply style presets, and bind events for interaction flows. Includes
+            widget lint checks so agents can detect missing roots, unbound controls, and layout issues.
+          </p>
+        </article>
+
+        <article class="card">
+          <h2>World And Scene Direction</h2>
+          <p>
+            Generate layouts and scatter assets with deterministic seeds, constraints, tags, and cleanup tokens. This
+            supports fast scene iteration while keeping reversible generation cycles.
+          </p>
+        </article>
+
+        <article class="card">
+          <h2>AI And Behavior Automation</h2>
+          <p>
+            Generate AI scaffolds, evolve blackboard schemas, and run scenario validation for AI goals. The system
+            supports plan-driven behavior authoring and verification for autonomous gameplay logic.
+          </p>
+        </article>
+
+        <article class="card">
+          <h2>Multiplayer Correctness By Default</h2>
+          <p>
+            Run replication lint, authority-guard insertion workflows, and multi-client PIE checks. Agents can gate
+            changes against multiplayer safety rules before treating a run as production-ready.
+          </p>
+        </article>
+
+        <article class="card">
+          <h2>Refactor, Explain, And Project Intelligence</h2>
+          <p>
+            Use refactor catalog/preview/apply, node-level explain routes, dependency graphs, hotspot scoring, and
+            change impact analysis to keep large projects understandable and stable during automation.
+          </p>
+        </article>
+
+        <article class="card">
+          <h2>Closed-Loop Autonomous Validation</h2>
+          <p>
+            Mutation flows can auto-run compile, contradiction checks, PIE scenario suites, replay determinism checks,
+            performance/risk lint, and optional rollback handling when validation gates fail.
+          </p>
+        </article>
+
+        <article class="card">
+          <h2>Agent Interfaces</h2>
+          <p>
+            The same control surface is available through Web API, CLI, and MCP tools. This allows agent runtimes in
+            different environments to execute the same deterministic workflows without UI-only dependencies.
+          </p>
+        </article>
+
+        <article class="card">
+          <h2>Commercial And Session Logging Backbone</h2>
+          <p>
+            Includes entitlement checks, usage events, paid session lifecycle endpoints, major-update stream logs, and
+            exportable diagnostics for user-facing web products.
+          </p>
+        </article>
+      </section>
+
+      <div class="foot">
+        Built for UE 5.7-first workflows with agent-driven execution and deterministic safety guardrails.
+      </div>
+    </main>
+  </body>
+</html>

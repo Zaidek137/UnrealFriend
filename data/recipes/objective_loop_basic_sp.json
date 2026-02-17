@@ -14,6 +14,8 @@
     {"id": "wire_progress", "action": "wire_objective_progress"},
     {"id": "create_score", "action": "create_score_system"},
     {"id": "create_hud_widget", "action": "create_widget_blueprint"},
+    {"id": "seed_hud_widget", "action": "modify_widget_tree"},
+    {"id": "bind_hud_events", "action": "bind_widget_events"},
     {"id": "create_objective_N", "action": "create_objective_actor"}
   ],
   "post_validations": [

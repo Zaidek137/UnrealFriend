@@ -1,5 +1,7 @@
 # Unreal Agent Plugin Starter
 
+Current competitive-parity target engine: **UE 5.7**.
+
 This workspace now contains a starter Unreal Engine plugin at:
 
 - `Plugins/UnrealAgent`
@@ -19,6 +21,10 @@ It gives you:
   - `analyze_blueprint_asset`
   - recipe/world/data/validation families:
     - `create_widget_blueprint`
+    - `modify_widget_tree`
+    - `bind_widget_events`
+    - `generate_widget_template`
+    - `analyze_widget_tree`
     - `create_objective_actor`
     - `wire_objective_progress`
     - `create_timer_system`
@@ -27,8 +33,29 @@ It gives you:
     - `batch_spawn_actors`
     - `layout_along_spline`
     - `create_level_chunk`
+    - `generate_layout_from_template`
+    - `scatter_assets_with_constraints`
+    - `clear_generated_layout_by_token`
     - `tag_and_group_actors`
+    - `list_asset_dependencies`
+    - `list_asset_referencers`
+    - `analyze_asset_impact`
+    - `analyze_project_hotspots`
     - `create_data_asset`
+    - `create_behavior_tree_asset`
+    - `edit_behavior_tree_asset`
+    - `create_blackboard_data_asset`
+    - `edit_blackboard_data_asset`
+    - `create_eqs_query_asset`
+    - `edit_eqs_query_asset`
+    - `create_anim_blueprint_asset`
+    - `edit_anim_blueprint_state_machine`
+    - `create_material_asset`
+    - `edit_material_asset`
+    - `create_niagara_system_asset`
+    - `edit_niagara_system_graph`
+    - `create_level_sequence_asset`
+    - `edit_level_sequence_asset`
     - `validate_data_schema`
     - `inspect_compile_errors`
     - `run_pie_scenario`
@@ -37,9 +64,49 @@ It gives you:
   - `modify_blueprint_graph`:
     - `add_print_string_on_begin_play`
     - `add_variable`
+    - `remove_variable`
     - `set_default`
     - `add_branch`
     - `call_function`
+    - `remove_function_call`
+    - `remove_nodes`
+    - `disconnect_pin`
+
+Blueprint reliability playbooks:
+
+- `docs/AGENT_BLUEPRINT_ACCURACY_WORKFLOW.md`
+- `docs/BLUEPRINT_NODE_LIBRARY.md`
+
+Autonomy expansion routes in the web bridge (`apps/unreal-agent-web/server.py`):
+
+- `GET /api/graph-primitives-catalog`
+- `POST /api/graph-primitives-apply`
+- `POST /api/runtime-validate-repair`
+- `POST /api/autonomous-loop-run`
+- `POST /api/pie-replay-suite`
+- `GET /api/animation-autonomy-catalog`
+- `POST /api/animation-autonomy-generate`
+- `GET /api/ai-autonomy-catalog`
+- `POST /api/ai-autonomy-generate`
+- `POST /api/blackboard-schema-evolve`
+- `POST /api/ai-behavior-validate`
+- `GET /api/content-pipeline-catalog`
+- `POST /api/content-pipeline-apply`
+- `POST /api/content-schema-enforce`
+- `POST /api/dependency-safety-check`
+- `GET /api/multiplayer-correctness-catalog`
+- `POST /api/multiplayer-lint`
+- `POST /api/multiplayer-guard-apply`
+- `POST /api/multiplayer-pie-test`
+- `GET /api/material-mesh-presets-catalog`
+- `POST /api/material-mesh-setup`
+- `POST /api/ai-asset-authoring`
+- `GET /api/native-asset-authoring-catalog`
+- `POST /api/native-asset-create`
+- `POST /api/native-asset-edit`
+- `POST /api/native-asset-authoring-workflow`
+- `POST /api/blueprint-structure-review`
+- `POST /api/rpc-contract-lint`
 
 ## Install Into Unreal Project
 
@@ -425,6 +492,15 @@ This UI lets you:
 IDE bridge CLI:
 
 - `tools/ide_unreal_agent.py`
+- readiness check: `python3 tools/ide_unreal_agent.py --pretty agent-readiness`
+- node control capability map: `python3 tools/ide_unreal_agent.py --pretty node-control-capabilities`
+- workflow catalog: `python3 tools/ide_unreal_agent.py --pretty workflow-catalog`
+- replay suite: `python3 tools/ide_unreal_agent.py --pretty replay-suite --cases-json '[{"case_id":"c1","command":"Create a timed objective collection loop for parkour."}]' --repeats 2`
+- release gate: `python3 tools/ide_unreal_agent.py --pretty release-gate-evaluate --blueprint-paths-json '["/Game/Test/BP_Example"]' --replay-cases-json '[{"case_id":"c1","command":"Create a timed objective collection loop for parkour."}]' --replay-repeats 2`
+- autonomous bulletproof loop: `python3 tools/ide_unreal_agent.py --pretty autonomous-loop-run --blueprint-path /Game/Test/BP_Example --scenario-repeats 2 --enable-multiplayer --multiplayer-client-count 2 --multiplayer-repeats 2`
+- execution artifact view: `python3 tools/ide_unreal_agent.py --pretty execution-artifact --run-id <exec_run_id> --include-full`
+- workflow generate (dry-run): `python3 tools/ide_unreal_agent.py --pretty workflow-generate --workflow-id objective_capture_loop_full --inputs-json '{"namespace_root":"/Game/AgentGenerated","controller_asset_name":"BP_AutoController","objective_count":5,"time_limit_sec":180}' --dry-run`
+- blueprint full-asset review: `python3 tools/ide_unreal_agent.py --pretty blueprint-structure-review --blueprint-path /Game/Test/BP_Example --review-scope asset --include-ast --max-graph-ast-exports 12`
 
 Integration guide:
 
