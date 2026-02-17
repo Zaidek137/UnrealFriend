@@ -7,10 +7,18 @@ import urllib.parse
 import urllib.request
 from typing import Any, Dict, Optional
 
+import os
+
+
+AUTO_BOOTSTRAP = os.environ.get("UNREAL_AGENT_AUTO_BOOTSTRAP", "true").strip().lower() in {"1", "true", "yes", "on"}
+REQUEST_EXTRA_HEADERS: Dict[str, str] = {}
+
 
 def request_json(method: str, url: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     data = None
     headers = {"Content-Type": "application/json"}
+    if REQUEST_EXTRA_HEADERS:
+        headers.update(REQUEST_EXTRA_HEADERS)
     if payload is not None:
         data = json.dumps(payload).encode("utf-8")
 
@@ -26,6 +34,22 @@ def request_json(method: str, url: str, payload: Optional[Dict[str, Any]] = None
             return {"success": False, "message": f"HTTP {exc.code}", "raw": body}
     except Exception as exc:  # noqa: BLE001
         return {"success": False, "message": str(exc)}
+
+
+def bootstrap_agent_session(base_url: str, cmd_name: str) -> Dict[str, Any]:
+    payload = {
+        "client_name": "ide_unreal_agent_cli",
+        "client_version": "0.1.0",
+        "session_label": cmd_name,
+    }
+    result = request_json("POST", f"{base_url}/api/agent-bootstrap", payload)
+    if not bool(result.get("success", False)):
+        return result
+    token = str(result.get("bootstrap_token", "")).strip()
+    if not token:
+        return {"success": False, "error_code": "BOOTSTRAP_TOKEN_MISSING", "message": "Agent bootstrap succeeded without token.", "response": result}
+    REQUEST_EXTRA_HEADERS["X-Agent-Bootstrap-Token"] = token
+    return result
 
 
 def parse_json_arg(raw: str, label: str) -> Dict[str, Any]:
@@ -329,6 +353,11 @@ def main() -> int:
     system_bootstrap.add_argument("--package-path", required=True)
     system_bootstrap.add_argument("--dry-run", action="store_true")
 
+    agent_bootstrap = sub.add_parser("agent-bootstrap")
+    agent_bootstrap.add_argument("--client-name", default="ide_unreal_agent_cli")
+    agent_bootstrap.add_argument("--client-version", default="0.1.0")
+    agent_bootstrap.add_argument("--session-label", default="")
+
     sub.add_parser("control-surface-catalog")
     sub.add_parser("agent-readiness")
 
@@ -604,6 +633,38 @@ def main() -> int:
 
     args = parser.parse_args()
     base = f"http://{args.host}:{args.port}"
+
+    bootstrap_exempt_commands = {
+        "health",
+        "info",
+        "state",
+        "actions",
+        "recipes",
+        "release-metrics",
+        "claims-evidence",
+        "execution-runs",
+        "execution-run-detail",
+        "execution-artifact",
+        "approvals",
+        "approve",
+        "paid-session-logs",
+        "get-paid-session-logs",
+        "start-paid-session",
+        "end-paid-session",
+        "admin-session-diagnostics",
+        "admin-usage-events",
+        "control-surface-catalog",
+        "agent-readiness",
+        "agent-bootstrap",
+    }
+    if AUTO_BOOTSTRAP and args.cmd not in bootstrap_exempt_commands:
+        bootstrap_result = bootstrap_agent_session(base, args.cmd)
+        if not bool(bootstrap_result.get("success", False)):
+            if args.pretty:
+                print(json.dumps(bootstrap_result, indent=2))
+            else:
+                print(json.dumps(bootstrap_result))
+            return 1
 
     if args.cmd == "health":
         result = request_json("GET", f"{base}/api/health")
@@ -1072,6 +1133,17 @@ def main() -> int:
             "dry_run": bool(args.dry_run),
         }
         result = request_json("POST", f"{base}/api/system-bootstrap", payload)
+    elif args.cmd == "agent-bootstrap":
+        payload = {
+            "client_name": args.client_name,
+            "client_version": args.client_version,
+            "session_label": args.session_label or "manual_bootstrap",
+        }
+        result = request_json("POST", f"{base}/api/agent-bootstrap", payload)
+        if bool(result.get("success", False)):
+            token = str(result.get("bootstrap_token", "")).strip()
+            if token:
+                REQUEST_EXTRA_HEADERS["X-Agent-Bootstrap-Token"] = token
     elif args.cmd == "control-surface-catalog":
         result = request_json("GET", f"{base}/api/control-surface-catalog")
     elif args.cmd == "agent-readiness":
@@ -1434,7 +1506,10 @@ def main() -> int:
             f"&since={args.since}"
             f"&limit={int(args.limit)}"
         )
-        req = urllib.request.Request(url=url, headers={"X-Paid-Token": args.paid_token}, method="GET")
+        req_headers = {"X-Paid-Token": args.paid_token}
+        if REQUEST_EXTRA_HEADERS:
+            req_headers.update(REQUEST_EXTRA_HEADERS)
+        req = urllib.request.Request(url=url, headers=req_headers, method="GET")
         try:
             with urllib.request.urlopen(req, timeout=120) as response:
                 result = json.loads(response.read().decode("utf-8"))

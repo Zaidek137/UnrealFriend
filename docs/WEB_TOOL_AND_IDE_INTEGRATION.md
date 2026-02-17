@@ -61,6 +61,7 @@ No CLI commands are required for day-to-day use in this mode.
 - `GET /api/admin/session-diagnostics`
 - `GET /api/admin/usage-events`
 - `POST /api/settings`
+- `POST /api/agent-bootstrap`
 - `POST /api/approve`
 - `POST /api/direct-execute`
 - `POST /api/run-plan`
@@ -117,6 +118,20 @@ No CLI commands are required for day-to-day use in this mode.
 
 Set `require_approval_for_mutations=false` in `/api/settings` to bypass approvals.
 
+## Agent Bootstrap Handshake
+
+Before agent-driven mutating routes, establish a bootstrap session:
+
+1. `POST /api/agent-bootstrap` with client metadata.
+2. Store `bootstrap_token` from the response.
+3. Send header `X-Agent-Bootstrap-Token: <token>` on subsequent mutating API calls.
+
+If missing/invalid/expired, mutating routes return bootstrap errors:
+
+- `AGENT_BOOTSTRAP_REQUIRED` (HTTP `428`)
+- `AGENT_BOOTSTRAP_INVALID` (HTTP `401`)
+- `AGENT_BOOTSTRAP_EXPIRED` (HTTP `401`)
+
 ## IDE Bridge CLI
 
 Script:
@@ -153,6 +168,7 @@ Commands:
 - `umg-generate`, `world-generate`
 - `entitlements-check`, `usage-event`
 - `agent-readiness`
+- `agent-bootstrap`
 - `replay-suite`
 - `release-gate-evaluate`
 - `workflow-generate`

@@ -84,6 +84,14 @@ Execution safeguards (set in `/api/settings`):
 - `execution_preflight_enabled` (default `true`): runs deterministic dry-run preflight before mutating `run-plan`, `run-goal`, and recipe executions.
 - `execution_store_artifacts` (default `true`): stores request/response artifacts under `.data/execution-runs`.
 - `execution_max_saved_runs` (default `300`): cap for saved execution artifact runs.
+- `require_agent_bootstrap_for_routes` (default `true`): enforces bootstrap token on agent mutating routes.
+- `agent_bootstrap_ttl_sec` (default `28800`): bootstrap session token TTL in seconds.
+
+Agent bootstrap handshake:
+
+1. Call `POST /api/agent-bootstrap` with `client_name`, `client_version`, `session_label`.
+2. Read `bootstrap_token` from response.
+3. Send header `X-Agent-Bootstrap-Token: <token>` on mutating route calls.
 
 Paid live log scaffolding (set in `/api/settings`):
 
@@ -125,6 +133,7 @@ Plan-tier gate (set in `/api/settings`):
 - `GET /api/paid/session/stream` (SSE)
 - `GET /api/approvals`
 - `POST /api/settings`
+- `POST /api/agent-bootstrap`
 - `POST /api/approve`
 - `POST /api/paid/session/start`
 - `POST /api/paid/session/end`

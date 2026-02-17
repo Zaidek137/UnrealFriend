@@ -41,6 +41,19 @@ RUN_LOCK = threading.Lock()
 APPROVALS_LOCK = threading.Lock()
 AUDIT_LOCK = threading.Lock()
 RELEASE_METRICS_LOCK = threading.Lock()
+BOOTSTRAP_LOCK = threading.Lock()
+
+BOOTSTRAP_REQUIRED_ROUTES: set[str] = set()
+BOOTSTRAP_EXEMPT_ROUTES: set[str] = {
+    "/api/settings",
+    "/api/approve",
+    "/api/paid/session/start",
+    "/api/paid/session/end",
+    "/api/entitlements/check",
+    "/api/usage/event",
+    "/api/agent-bootstrap",
+}
+BOOTSTRAP_SESSIONS: Dict[str, Dict[str, Any]] = {}
 
 MUTATING_ACTIONS = {
     "create_blueprint",
@@ -135,6 +148,8 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "auto_verify_max_rpc_risk_score": 40.0,
     "auto_verify_max_multiplayer_lint_risk_score": 40.0,
     "auto_verify_max_perf_risk_score": 35.0,
+    "require_agent_bootstrap_for_routes": True,
+    "agent_bootstrap_ttl_sec": 28800,
     "paid_live_logs_enabled": False,
     "paid_live_logs_tokens": [],
     "paid_live_logs_max_session_events": 2000,
@@ -373,6 +388,7 @@ READINESS_MUTATING_ROUTES: set[str] = {
     "/api/native-asset-edit",
     "/api/native-asset-authoring-workflow",
 }
+BOOTSTRAP_REQUIRED_ROUTES = set(READINESS_MUTATING_ROUTES)
 
 GRAPH_MUTATION_ACTIONS: set[str] = {
     "modify_blueprint_graph",
@@ -454,6 +470,7 @@ def get_control_surface_catalog_payload() -> Dict[str, Any]:
             "/api/rpc-contract-lint",
         ],
         "capability_introspection": [
+            "/api/agent-bootstrap",
             "/api/node-control-capabilities",
             "/api/actions",
             "/api/agent-readiness",
@@ -534,6 +551,139 @@ def enforce_agent_readiness_for_route(settings: Dict[str, Any], path: str, body:
     if status == HTTPStatus.OK:
         return None
     return status, payload
+
+
+def _prune_bootstrap_sessions(now_ts: Optional[float] = None) -> None:
+    now = float(now_ts if now_ts is not None else time.time())
+    with BOOTSTRAP_LOCK:
+        expired = [token for token, meta in BOOTSTRAP_SESSIONS.items() if float(meta.get("expires_at", 0.0)) <= now]
+        for token in expired:
+            BOOTSTRAP_SESSIONS.pop(token, None)
+
+
+def issue_agent_bootstrap_session(
+    settings: Dict[str, Any],
+    *,
+    client_name: str,
+    client_version: str,
+    session_label: str,
+    readiness: Dict[str, Any],
+    capability_context: Dict[str, Any],
+) -> Dict[str, Any]:
+    now = time.time()
+    ttl_sec = max(60, int(settings.get("agent_bootstrap_ttl_sec", 28800)))
+    token = f"abs_{uuid4().hex}"
+    record = {
+        "token": token,
+        "created_at": now,
+        "updated_at": now,
+        "expires_at": now + ttl_sec,
+        "client_name": client_name,
+        "client_version": client_version,
+        "session_label": session_label,
+        "readiness_fingerprint": _stable_hash(
+            {
+                "required_actions": readiness.get("required_actions", []),
+                "missing_actions": readiness.get("missing_actions", []),
+                "compatibility": readiness.get("compatibility", {}),
+            }
+        ),
+        "capability_fingerprint": _stable_hash(capability_context),
+    }
+    _prune_bootstrap_sessions(now)
+    with BOOTSTRAP_LOCK:
+        BOOTSTRAP_SESSIONS[token] = record
+    return record
+
+
+def validate_agent_bootstrap_session(settings: Dict[str, Any], token: str) -> Tuple[bool, Dict[str, Any]]:
+    now = time.time()
+    _prune_bootstrap_sessions(now)
+    if not token:
+        return False, make_error(
+            "AGENT_BOOTSTRAP_REQUIRED",
+            "Agent bootstrap token is required. Call /api/agent-bootstrap first.",
+            bootstrap_route="/api/agent-bootstrap",
+        )
+    with BOOTSTRAP_LOCK:
+        record = BOOTSTRAP_SESSIONS.get(token)
+        if not isinstance(record, dict):
+            return False, make_error(
+                "AGENT_BOOTSTRAP_INVALID",
+                "Agent bootstrap token is invalid. Call /api/agent-bootstrap to start a new session.",
+                bootstrap_route="/api/agent-bootstrap",
+            )
+        expires_at = float(record.get("expires_at", 0.0))
+        if expires_at <= now:
+            BOOTSTRAP_SESSIONS.pop(token, None)
+            return False, make_error(
+                "AGENT_BOOTSTRAP_EXPIRED",
+                "Agent bootstrap session has expired. Call /api/agent-bootstrap again.",
+                bootstrap_route="/api/agent-bootstrap",
+            )
+        ttl_sec = max(60, int(settings.get("agent_bootstrap_ttl_sec", 28800)))
+        record["updated_at"] = now
+        record["expires_at"] = now + ttl_sec
+        BOOTSTRAP_SESSIONS[token] = record
+        return True, {
+            "success": True,
+            "bootstrap_token": token,
+            "expires_at": float(record.get("expires_at", 0.0)),
+            "client_name": str(record.get("client_name", "")),
+            "session_label": str(record.get("session_label", "")),
+        }
+
+
+def build_agent_bootstrap_capability_context() -> Dict[str, Any]:
+    return {
+        "control_surfaces": get_control_surface_catalog_payload(),
+        "graph_actions": sorted(list(GRAPH_MUTATION_ACTIONS)),
+        "route_groups": {
+            "bootstrap_required_routes": sorted(list(BOOTSTRAP_REQUIRED_ROUTES)),
+            "bootstrap_exempt_routes": sorted(list(BOOTSTRAP_EXEMPT_ROUTES)),
+        },
+        "native_asset_authoring_types": sorted(
+            [item.get("asset_type", "") for item in NATIVE_ASSET_AUTHORING_CATALOG.values() if isinstance(item, dict)]
+        ),
+    }
+
+
+def extract_bootstrap_token(headers: Any, body: Optional[Dict[str, Any]] = None) -> str:
+    header_token = ""
+    if headers is not None:
+        try:
+            header_token = str(headers.get("X-Agent-Bootstrap-Token", "")).strip()
+        except Exception:
+            header_token = ""
+    if header_token:
+        return header_token
+    if isinstance(body, dict):
+        return str(body.get("bootstrap_token", "")).strip()
+    return ""
+
+
+def enforce_agent_bootstrap_for_route(
+    settings: Dict[str, Any],
+    path: str,
+    body: Dict[str, Any],
+    headers: Any,
+) -> Optional[Tuple[HTTPStatus, Dict[str, Any]]]:
+    if not bool(settings.get("require_agent_bootstrap_for_routes", True)):
+        return None
+    if path in BOOTSTRAP_EXEMPT_ROUTES:
+        return None
+    if path not in BOOTSTRAP_REQUIRED_ROUTES:
+        return None
+    bootstrap_token = extract_bootstrap_token(headers, body)
+    ok, payload = validate_agent_bootstrap_session(settings, bootstrap_token)
+    if ok:
+        return None
+    code = str(payload.get("error_code", ""))
+    if code == "AGENT_BOOTSTRAP_REQUIRED":
+        return HTTPStatus.PRECONDITION_REQUIRED, payload
+    if code == "AGENT_BOOTSTRAP_EXPIRED":
+        return HTTPStatus.UNAUTHORIZED, payload
+    return HTTPStatus.UNAUTHORIZED, payload
 
 
 @dataclass
@@ -7909,6 +8059,12 @@ class RequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
+            bootstrap_block = enforce_agent_bootstrap_for_route(settings, path, body, self.headers)
+            if bootstrap_block is not None:
+                status, payload = bootstrap_block
+                self._json_response(status, payload)
+                return
+
             readiness_block = enforce_agent_readiness_for_route(settings, path, body)
             if readiness_block is not None:
                 status, payload = readiness_block
@@ -7987,6 +8143,50 @@ class RequestHandler(BaseHTTPRequestHandler):
             if path == "/api/debug/clear":
                 result = call_unreal(settings, "POST", "/debug/clear", payload={})
                 self._json_response(result.status_code, result.payload)
+                return
+
+            if path == "/api/agent-bootstrap":
+                client_name = str(body.get("client_name", "agent_client")).strip() or "agent_client"
+                client_version = str(body.get("client_version", "")).strip()
+                session_label = str(body.get("session_label", "")).strip()
+                readiness_status, readiness_payload = evaluate_agent_readiness(settings)
+                capability_context = build_agent_bootstrap_capability_context()
+                if readiness_status != HTTPStatus.OK:
+                    self._json_response(
+                        readiness_status,
+                        {
+                            "success": False,
+                            "error_code": "AGENT_NOT_READY",
+                            "message": "Agent bootstrap failed because the control surface is not ready.",
+                            "readiness": readiness_payload,
+                            "capability_context": capability_context,
+                            "bootstrap_route": "/api/agent-bootstrap",
+                        },
+                    )
+                    return
+                session_record = issue_agent_bootstrap_session(
+                    settings,
+                    client_name=client_name,
+                    client_version=client_version,
+                    session_label=session_label,
+                    readiness=readiness_payload,
+                    capability_context=capability_context,
+                )
+                self._json_response(
+                    HTTPStatus.OK,
+                    {
+                        "success": True,
+                        "message": "Agent bootstrap session started.",
+                        "bootstrap_token": session_record.get("token", ""),
+                        "created_at": float(session_record.get("created_at", 0.0)),
+                        "expires_at": float(session_record.get("expires_at", 0.0)),
+                        "client_name": client_name,
+                        "client_version": client_version,
+                        "session_label": session_label,
+                        "readiness": readiness_payload,
+                        "capability_context": capability_context,
+                    },
+                )
                 return
 
             compatibility = check_compatibility(settings)

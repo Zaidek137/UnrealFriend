@@ -493,6 +493,7 @@ IDE bridge CLI:
 
 - `tools/ide_unreal_agent.py`
 - readiness check: `python3 tools/ide_unreal_agent.py --pretty agent-readiness`
+- bootstrap session (optional manual check): `python3 tools/ide_unreal_agent.py --pretty agent-bootstrap`
 - node control capability map: `python3 tools/ide_unreal_agent.py --pretty node-control-capabilities`
 - workflow catalog: `python3 tools/ide_unreal_agent.py --pretty workflow-catalog`
 - replay suite: `python3 tools/ide_unreal_agent.py --pretty replay-suite --cases-json '[{"case_id":"c1","command":"Create a timed objective collection loop for parkour."}]' --repeats 2`

@@ -19,6 +19,7 @@ SETTINGS_FILE = ROOT / "apps" / "unreal-agent-web" / ".data" / "settings.json"
 APPROVALS_FILE = ROOT / "apps" / "unreal-agent-web" / ".data" / "approvals.json"
 PAID_SESSIONS_FILE = ROOT / "apps" / "unreal-agent-web" / ".data" / "paid_sessions.json"
 AUDIT_LOG = ROOT / "apps" / "unreal-agent-web" / ".data" / "audit.log.jsonl"
+REQUEST_DEFAULT_HEADERS: Dict[str, str] = {}
 
 
 class StubUnrealHandler(BaseHTTPRequestHandler):
@@ -321,6 +322,8 @@ def request_json(
 ) -> Tuple[int, Dict[str, Any]]:
     data = None
     request_headers = {"Content-Type": "application/json"}
+    if REQUEST_DEFAULT_HEADERS:
+        request_headers.update(REQUEST_DEFAULT_HEADERS)
     if isinstance(headers, dict):
         request_headers.update(headers)
     if payload is not None:
@@ -406,6 +409,32 @@ def run() -> None:
         )
         assert_true(status == HTTPStatus.OK, "Expected paid settings update success")
         assert_true(paid_settings.get("success", False), "Expected paid settings success")
+
+        status, prebootstrap_block = request_json(
+            "POST",
+            f"{base}/api/run-goal",
+            {"goal": "pre-bootstrap smoke check", "dry_run": True},
+        )
+        assert_true(status == HTTPStatus.PRECONDITION_REQUIRED, "Expected bootstrap precondition on /api/run-goal")
+        assert_true(
+            str(prebootstrap_block.get("error_code", "")) == "AGENT_BOOTSTRAP_REQUIRED",
+            "Expected AGENT_BOOTSTRAP_REQUIRED before bootstrap",
+        )
+
+        status, bootstrap = request_json(
+            "POST",
+            f"{base}/api/agent-bootstrap",
+            {
+                "client_name": "smoke_test",
+                "client_version": "0.1.0",
+                "session_label": "smoke_suite",
+            },
+        )
+        assert_true(status == HTTPStatus.OK, "Expected /api/agent-bootstrap success")
+        assert_true(bootstrap.get("success", False), "Expected agent bootstrap success")
+        bootstrap_token = str(bootstrap.get("bootstrap_token", "")).strip()
+        assert_true(bool(bootstrap_token), "Expected bootstrap token")
+        REQUEST_DEFAULT_HEADERS["X-Agent-Bootstrap-Token"] = bootstrap_token
 
         status, paid_start = request_json(
             "POST",

@@ -26,15 +26,26 @@ JSONRPC_VERSION = "2.0"
 DEFAULT_WEB_BASE = os.environ.get("UNREAL_AGENT_WEB_BASE", "http://127.0.0.1:8787").rstrip("/")
 AUTO_APPROVE = os.environ.get("UNREAL_AGENT_AUTO_APPROVE", "true").strip().lower() in {"1", "true", "yes", "on"}
 AUTO_START_WEB = os.environ.get("UNREAL_AGENT_WEB_AUTOSTART", "true").strip().lower() in {"1", "true", "yes", "on"}
+AUTO_BOOTSTRAP = os.environ.get("UNREAL_AGENT_AUTO_BOOTSTRAP", "true").strip().lower() in {"1", "true", "yes", "on"}
 WEB_SERVER_PATH = Path(os.environ.get("UNREAL_AGENT_WEB_SERVER_PATH", "/Users/ericdiaz/Desktop/Unreal Friend/apps/unreal-agent-web/server.py"))
 
 _web_start_attempted = False
+_bootstrap_token = ""
+_bootstrap_expires_at = 0.0
 
 
-def request_json(method: str, path: str, payload: Optional[Dict[str, Any]] = None, timeout: int = 120) -> Tuple[int, Dict[str, Any]]:
+def request_json(
+    method: str,
+    path: str,
+    payload: Optional[Dict[str, Any]] = None,
+    timeout: int = 120,
+    request_headers_extra: Optional[Dict[str, str]] = None,
+) -> Tuple[int, Dict[str, Any]]:
     url = f"{DEFAULT_WEB_BASE}{path}"
     data = None
     headers = {"Content-Type": "application/json"}
+    if isinstance(request_headers_extra, dict):
+        headers.update(request_headers_extra)
     if payload is not None:
         data = json.dumps(payload).encode("utf-8")
 
@@ -94,6 +105,63 @@ def ensure_web_available() -> None:
             return
 
 
+def _bootstrap_headers() -> Dict[str, str]:
+    if _bootstrap_token:
+        return {"X-Agent-Bootstrap-Token": _bootstrap_token}
+    return {}
+
+
+def ensure_agent_bootstrap(force: bool = False) -> Tuple[bool, Dict[str, Any]]:
+    global _bootstrap_token, _bootstrap_expires_at
+
+    if not AUTO_BOOTSTRAP:
+        return True, {"success": True, "auto_bootstrap": False}
+
+    ensure_web_available()
+    now = time.time()
+    if not force and _bootstrap_token and now < (_bootstrap_expires_at - 10.0):
+        return True, {"success": True, "bootstrap_token": _bootstrap_token, "expires_at": _bootstrap_expires_at}
+
+    payload = {
+        "client_name": "cursor_mcp",
+        "client_version": "0.1.0",
+        "session_label": "cursor_agent_session",
+    }
+    status, response = request_json("POST", "/api/agent-bootstrap", payload, timeout=30)
+    if status >= 400 or not bool(response.get("success", False)):
+        _bootstrap_token = ""
+        _bootstrap_expires_at = 0.0
+        return False, response if isinstance(response, dict) else {"success": False, "message": "Bootstrap failed."}
+
+    _bootstrap_token = str(response.get("bootstrap_token", "")).strip()
+    _bootstrap_expires_at = float(response.get("expires_at", 0.0))
+    if not _bootstrap_token:
+        return False, {"success": False, "message": "Bootstrap response did not contain bootstrap_token.", "response": response}
+    return True, response
+
+
+def request_api(
+    method: str,
+    path: str,
+    payload: Optional[Dict[str, Any]] = None,
+    *,
+    timeout: int = 120,
+    retry_on_bootstrap_error: bool = True,
+) -> Tuple[int, Dict[str, Any]]:
+    if path != "/api/agent-bootstrap":
+        ok, bootstrap_response = ensure_agent_bootstrap(force=False)
+        if not ok:
+            return 503, {"success": False, "error_code": "AGENT_BOOTSTRAP_FAILED", "message": "Automatic agent bootstrap failed.", "bootstrap": bootstrap_response}
+    status, result = request_json(method, path, payload, timeout=timeout, request_headers_extra=_bootstrap_headers())
+    error_code = str(result.get("error_code", "")).strip()
+    if retry_on_bootstrap_error and error_code in {"AGENT_BOOTSTRAP_REQUIRED", "AGENT_BOOTSTRAP_INVALID", "AGENT_BOOTSTRAP_EXPIRED"}:
+        ok, bootstrap_response = ensure_agent_bootstrap(force=True)
+        if not ok:
+            return 503, {"success": False, "error_code": "AGENT_BOOTSTRAP_FAILED", "message": "Automatic agent bootstrap failed.", "bootstrap": bootstrap_response}
+        status, result = request_json(method, path, payload, timeout=timeout, request_headers_extra=_bootstrap_headers())
+    return status, result
+
+
 def to_text(payload: Dict[str, Any]) -> str:
     return json.dumps(payload, indent=2, ensure_ascii=False)
 
@@ -127,15 +195,15 @@ def call_unreal_chat(args: Dict[str, Any]) -> Dict[str, Any]:
         "goal_context": goal_context,
     }
 
-    status, result = request_json("POST", "/api/chat", payload)
+    status, result = request_api("POST", "/api/chat", payload)
 
     if result.get("error_code") == "APPROVAL_REQUIRED" and AUTO_APPROVE:
         token = str(result.get("approval_token", "")).strip()
         if token:
-            approve_status, approve_result = request_json("POST", "/api/approve", {"approval_token": token})
+            approve_status, approve_result = request_api("POST", "/api/approve", {"approval_token": token})
             if approve_status < 400 and approve_result.get("success", False):
                 payload["approval_token"] = token
-                status, result = request_json("POST", "/api/chat", payload)
+                status, result = request_api("POST", "/api/chat", payload)
             else:
                 return mcp_error_content("Approval failed during auto-approve", {"approval": approve_result, "initial": result})
 
@@ -147,7 +215,7 @@ def call_unreal_chat(args: Dict[str, Any]) -> Dict[str, Any]:
 
 def call_endpoint(path: str, method: str = "GET", payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     ensure_web_available()
-    status, result = request_json(method, path, payload)
+    status, result = request_api(method, path, payload)
     if status >= 400 and not result.get("success", False):
         return mcp_error_content(f"{method} {path} failed", {"http_status": status, "response": result})
     return mcp_content(to_text(result))
@@ -168,14 +236,14 @@ def call_execute_action(args: Dict[str, Any]) -> Dict[str, Any]:
         "dry_run": bool(args.get("dry_run", False)),
     }
 
-    status, result = request_json("POST", "/api/direct-execute", body)
+    status, result = request_api("POST", "/api/direct-execute", body)
     if result.get("error_code") == "APPROVAL_REQUIRED" and AUTO_APPROVE:
         token = str(result.get("approval_token", "")).strip()
         if token:
-            approve_status, approve_result = request_json("POST", "/api/approve", {"approval_token": token})
+            approve_status, approve_result = request_api("POST", "/api/approve", {"approval_token": token})
             if approve_status < 400 and approve_result.get("success", False):
                 body["approval_token"] = token
-                status, result = request_json("POST", "/api/direct-execute", body)
+                status, result = request_api("POST", "/api/direct-execute", body)
             else:
                 return mcp_error_content("Approval failed during auto-approve", {"approval": approve_result, "initial": result})
 
@@ -201,14 +269,14 @@ def call_run_recipe(args: Dict[str, Any]) -> Dict[str, Any]:
         "stop_on_error": bool(args.get("stop_on_error", True)),
         "profile": str(args.get("profile", "balanced")).strip() or "balanced",
     }
-    status, result = request_json("POST", "/api/run-recipe", payload)
+    status, result = request_api("POST", "/api/run-recipe", payload)
     if result.get("error_code") == "APPROVAL_REQUIRED" and AUTO_APPROVE:
         token = str(result.get("approval_token", "")).strip()
         if token:
-            approve_status, approve_result = request_json("POST", "/api/approve", {"approval_token": token})
+            approve_status, approve_result = request_api("POST", "/api/approve", {"approval_token": token})
             if approve_status < 400 and approve_result.get("success", False):
                 payload["approval_token"] = token
-                status, result = request_json("POST", "/api/run-recipe", payload)
+                status, result = request_api("POST", "/api/run-recipe", payload)
             else:
                 return mcp_error_content("Approval failed during auto-approve", {"approval": approve_result, "initial": result})
     if status >= 400 and not result.get("success", False):
@@ -231,7 +299,7 @@ def call_validate_recipe(args: Dict[str, Any]) -> Dict[str, Any]:
         "profile": str(args.get("profile", "balanced")).strip() or "balanced",
         "release_validation": bool(args.get("release_validation", True)),
     }
-    status, result = request_json("POST", "/api/validate-recipe", payload)
+    status, result = request_api("POST", "/api/validate-recipe", payload)
     if status >= 400 and not result.get("success", False):
         return mcp_error_content("unreal_validate_recipe failed", {"http_status": status, "response": result})
     return mcp_content(to_text(result))
@@ -248,7 +316,7 @@ def call_run_scenario(args: Dict[str, Any]) -> Dict[str, Any]:
         "profile": str(args.get("profile", "balanced")).strip() or "balanced",
         "release_validation": bool(args.get("release_validation", False)),
     }
-    status, result = request_json("POST", "/api/run-scenario", payload)
+    status, result = request_api("POST", "/api/run-scenario", payload)
     if status >= 400 and not result.get("success", False):
         return mcp_error_content("unreal_run_scenario failed", {"http_status": status, "response": result})
     return mcp_content(to_text(result))
@@ -257,7 +325,7 @@ def call_run_scenario(args: Dict[str, Any]) -> Dict[str, Any]:
 def call_post(path: str, args: Dict[str, Any]) -> Dict[str, Any]:
     ensure_web_available()
     payload = args if isinstance(args, dict) else {}
-    status, result = request_json("POST", path, payload)
+    status, result = request_api("POST", path, payload)
     if status >= 400 and not result.get("success", False):
         return mcp_error_content(f"POST {path} failed", {"http_status": status, "response": result})
     return mcp_content(to_text(result))
@@ -1478,6 +1546,7 @@ class StdioJsonRpcServer:
                         },
                     )
                 elif method == "notifications/initialized":
+                    ensure_agent_bootstrap(force=False)
                     # Notification has no response.
                     continue
                 elif method == "tools/list":
