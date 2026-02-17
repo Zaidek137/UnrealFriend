@@ -1,0 +1,176 @@
+{
+  "timestamp": 1771233644.483237,
+  "blueprint_path": "/Game/Test/BP_Good",
+  "mode": "graph",
+  "action": "analyze_blueprint_graph",
+  "action_payload": {
+    "blueprint_path": "/Game/Test/BP_Good",
+    "include_pins": true,
+    "max_trace_depth": 128,
+    "max_nodes": 1000
+  },
+  "report_source": "deterministic",
+  "report_generation_errors": [],
+  "analysis": {
+    "blueprint": "/Game/Test/BP_Good",
+    "graph_name": "EventGraph",
+    "total_nodes": 3,
+    "returned_nodes": 3,
+    "truncated": false,
+    "nodes": [
+      {
+        "name": "K2Node_Event_BeginPlay",
+        "title": "Event BeginPlay",
+        "class": "/Script/BlueprintGraph.K2Node_Event",
+        "pins": [
+          {
+            "name": "then",
+            "direction": "output",
+            "category": "exec",
+            "links": 1
+          }
+        ]
+      },
+      {
+        "name": "K2Node_CallFunction_PrintString",
+        "title": "Print String",
+        "class": "/Script/BlueprintGraph.K2Node_CallFunction",
+        "pins": [
+          {
+            "name": "execute",
+            "direction": "input",
+            "category": "exec",
+            "links": 1
+          },
+          {
+            "name": "then",
+            "direction": "output",
+            "category": "exec",
+            "links": 0
+          },
+          {
+            "name": "In String",
+            "direction": "input",
+            "category": "string",
+            "links": 0,
+            "default_value": "Hi"
+          }
+        ]
+      },
+      {
+        "name": "K2Node_IfThenElse_0",
+        "title": "Branch",
+        "class": "/Script/BlueprintGraph.K2Node_IfThenElse",
+        "pins": [
+          {
+            "name": "Condition",
+            "direction": "input",
+            "category": "bool",
+            "links": 1
+          },
+          {
+            "name": "Then",
+            "direction": "output",
+            "category": "exec",
+            "links": 1
+          },
+          {
+            "name": "Else",
+            "direction": "output",
+            "category": "exec",
+            "links": 1
+          }
+        ]
+      }
+    ],
+    "entry_nodes": [
+      {
+        "node_name": "K2Node_Event_BeginPlay",
+        "node_title": "Event BeginPlay"
+      }
+    ],
+    "exec_edges": [
+      {
+        "from_node": "K2Node_Event_BeginPlay",
+        "from_pin": "then",
+        "to_node": "K2Node_CallFunction_PrintString",
+        "to_pin": "execute"
+      }
+    ],
+    "path_traces": [],
+    "dead_exec_outputs": [],
+    "branch_guards": [
+      {
+        "node_name": "K2Node_IfThenElse_0",
+        "then_links": 1,
+        "else_links": 1
+      }
+    ],
+    "function_calls": [
+      {
+        "node_name": "K2Node_CallFunction_PrintString",
+        "node_title": "Print String",
+        "target": "self"
+      }
+    ],
+    "delays": [],
+    "print_strings": [
+      {
+        "node_name": "K2Node_CallFunction_PrintString",
+        "message": "Hi",
+        "duration": "2.0"
+      }
+    ],
+    "enum_values": [],
+    "constants": [],
+    "contradictions": [],
+    "analysis_ok": true
+  },
+  "lint_findings": [],
+  "report": {
+    "summary": "Analyzed 1 graph(s) with 3 total node(s); 0 lint finding(s).",
+    "claims": [
+      {
+        "claim": "Graph 'EventGraph' has 1 entry node(s).",
+        "confidence": 1.0,
+        "unknown": false,
+        "evidence": [
+          {
+            "graph_name": "EventGraph",
+            "node_name": "K2Node_Event_BeginPlay"
+          }
+        ]
+      },
+      {
+        "claim": "Graph 'EventGraph' contains 1 branch guard node(s).",
+        "confidence": 1.0,
+        "unknown": false,
+        "evidence": [
+          {
+            "graph_name": "EventGraph",
+            "node_name": "K2Node_IfThenElse_0",
+            "pin_name": "Condition"
+          }
+        ]
+      },
+      {
+        "claim": "Graph 'EventGraph' prints 'Hi'.",
+        "confidence": 1.0,
+        "unknown": false,
+        "evidence": [
+          {
+            "graph_name": "EventGraph",
+            "node_name": "K2Node_CallFunction_PrintString",
+            "pin_name": "In String"
+          }
+        ]
+      }
+    ],
+    "unknowns": []
+  },
+  "report_validation": {
+    "ok": true,
+    "errors": [],
+    "warnings": []
+  }
+}

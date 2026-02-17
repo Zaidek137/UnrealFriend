@@ -1,0 +1,19 @@
+{
+  "recipe_id": "asset_import_materialize_pack",
+  "version": "1.0.0",
+  "description": "Scaffold deterministic asset pack setup and schema validation.",
+  "inputs": [
+    {"name": "namespace_root", "type": "string", "required": false, "default": "/Game/AgentGenerated"}
+  ],
+  "steps": [
+    {"id": "create_data_asset", "action": "create_data_asset"},
+    {"id": "validate_schema", "action": "validate_data_schema"}
+  ],
+  "post_validations": [
+    {"kind": "inspect_compile_errors", "target": "data_asset_blueprint"}
+  ],
+  "outputs": [
+    "data_asset_path",
+    "schema_validation_status"
+  ]
+}

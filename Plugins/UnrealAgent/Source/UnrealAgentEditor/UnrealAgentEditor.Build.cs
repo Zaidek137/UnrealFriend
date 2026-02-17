@@ -23,8 +23,23 @@ public class UnrealAgentEditor : ModuleRules
             new[]
             {
                 "AssetTools",
+                "AssetRegistry",
+                "AIModule",
                 "Kismet",
                 "BlueprintGraph",
+                "BehaviorTreeEditor",
+                "EnvironmentQueryEditor",
+                "AnimGraph",
+                "UMG",
+                "UMGEditor",
+                "Niagara",
+                "NiagaraEditor",
+                "MovieScene",
+                "MovieSceneTracks",
+                "LevelSequence",
+                "LevelSequenceEditor",
+                "Slate",
+                "SlateCore",
                 "Json",
                 "JsonUtilities"
             }

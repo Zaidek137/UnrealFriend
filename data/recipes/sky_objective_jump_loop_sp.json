@@ -1,0 +1,36 @@
+{
+  "recipe_id": "sky_objective_jump_loop_sp",
+  "version": "1.0.0",
+  "description": "Create a sky platform jumping environment with 5 random objective captures and unified roll-dash timing scaffold.",
+  "inputs": [
+    {"name": "namespace_root", "type": "string", "required": false, "default": "/Game/AgentGenerated"},
+    {"name": "controller_asset_name", "type": "string", "required": false, "default": "BP_SkyObjectiveLoopController"},
+    {"name": "platform_rows", "type": "integer", "required": false, "default": 20},
+    {"name": "platform_cols", "type": "integer", "required": false, "default": 20},
+    {"name": "platform_spacing", "type": "number", "required": false, "default": 900.0},
+    {"name": "sky_height", "type": "number", "required": false, "default": 4500.0},
+    {"name": "objective_count", "type": "integer", "required": false, "default": 5},
+    {"name": "random_seed", "type": "integer", "required": false, "default": 1337},
+    {"name": "roll_dash_combo_window_sec", "type": "number", "required": false, "default": 1.0},
+    {"name": "player_character_blueprint_path", "type": "string", "required": false, "default": ""},
+    {"name": "disable_legacy_roll_dash_cpp", "type": "boolean", "required": false, "default": true}
+  ],
+  "steps": [
+    {"id": "create_loop_controller", "action": "create_blueprint"},
+    {"id": "add_loop_variables", "action": "modify_blueprint_graph"},
+    {"id": "spawn_start_platform", "action": "spawn_actor"},
+    {"id": "spawn_sky_platform_grid", "action": "batch_spawn_actors"},
+    {"id": "spawn_objectives_randomized", "action": "create_objective_actor"}
+  ],
+  "post_validations": [
+    {"kind": "compile_blueprint", "target": "controller"},
+    {"kind": "assert_world_state", "required_tags": ["StartPlatform"], "min_count": 1},
+    {"kind": "assert_world_state", "required_tags": ["SkyPlatform"], "min_count": 20},
+    {"kind": "assert_world_state", "required_tags": ["ObjectiveItem"], "min_count": 5}
+  ],
+  "outputs": [
+    "controller_blueprint_path",
+    "platform_count",
+    "objective_actor_count"
+  ]
+}

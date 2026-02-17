@@ -185,6 +185,29 @@ static UK2Node_CallFunction* FindCallFunctionNode(const UEdGraph* EventGraph, co
     return nullptr;
 }
 
+static TArray<UK2Node_CallFunction*> FindCallFunctionNodes(const UEdGraph* EventGraph, const UFunction* TargetFunction)
+{
+    TArray<UK2Node_CallFunction*> Nodes;
+    if (EventGraph == nullptr || TargetFunction == nullptr)
+    {
+        return Nodes;
+    }
+
+    for (UEdGraphNode* Node : EventGraph->Nodes)
+    {
+        UK2Node_CallFunction* CallNode = Cast<UK2Node_CallFunction>(Node);
+        if (CallNode == nullptr)
+        {
+            continue;
+        }
+        if (CallNode->GetTargetFunction() == TargetFunction)
+        {
+            Nodes.Add(CallNode);
+        }
+    }
+    return Nodes;
+}
+
 static UK2Node_CallFunction* SpawnFunctionNode(
     UEdGraph* EventGraph,
     UFunction* TargetFunction,
@@ -205,6 +228,83 @@ static UK2Node_CallFunction* SpawnFunctionNode(
             NewNode->SetFromFunction(TargetFunction);
         }
     );
+}
+
+static UEdGraphNode* FindNodeByName(const UEdGraph* EventGraph, const FString& NodeName)
+{
+    if (EventGraph == nullptr || NodeName.IsEmpty())
+    {
+        return nullptr;
+    }
+
+    for (UEdGraphNode* Node : EventGraph->Nodes)
+    {
+        if (Node != nullptr && Node->GetName().Equals(NodeName, ESearchCase::IgnoreCase))
+        {
+            return Node;
+        }
+    }
+    return nullptr;
+}
+
+static bool StringContainsIgnoreCase(const FString& Source, const FString& Needle)
+{
+    return Needle.IsEmpty() || Source.Contains(Needle, ESearchCase::IgnoreCase, ESearchDir::FromStart);
+}
+
+static bool NodeMatchesGenericFilters(
+    const UEdGraphNode* Node,
+    const FString& NodeNameContains,
+    const FString& NodeTitleContains,
+    const FString& NodeClassPath,
+    const FString& FunctionClassPath,
+    const FString& FunctionName
+)
+{
+    if (Node == nullptr)
+    {
+        return false;
+    }
+
+    if (!StringContainsIgnoreCase(Node->GetName(), NodeNameContains))
+    {
+        return false;
+    }
+
+    const FString NodeTitle = Node->GetNodeTitle(ENodeTitleType::ListView).ToString();
+    if (!StringContainsIgnoreCase(NodeTitle, NodeTitleContains))
+    {
+        return false;
+    }
+
+    if (!NodeClassPath.IsEmpty() && !Node->GetClass()->GetPathName().Equals(NodeClassPath, ESearchCase::IgnoreCase))
+    {
+        return false;
+    }
+
+    if (!FunctionClassPath.IsEmpty() || !FunctionName.IsEmpty())
+    {
+        const UK2Node_CallFunction* CallNode = Cast<UK2Node_CallFunction>(Node);
+        if (CallNode == nullptr)
+        {
+            return false;
+        }
+        const UFunction* TargetFunction = CallNode->GetTargetFunction();
+        if (TargetFunction == nullptr)
+        {
+            return false;
+        }
+        if (!FunctionName.IsEmpty() && !TargetFunction->GetName().Equals(FunctionName, ESearchCase::IgnoreCase))
+        {
+            return false;
+        }
+        if (!FunctionClassPath.IsEmpty() && !TargetFunction->GetOuterUClass()->GetPathName().Equals(FunctionClassPath, ESearchCase::IgnoreCase))
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 static bool JsonValueToPinDefault(const TSharedPtr<FJsonValue>& JsonValue, FString& OutDefaultValue)
@@ -463,7 +563,7 @@ FString FModifyBlueprintGraphAction::GetName() const
 
 FString FModifyBlueprintGraphAction::GetDescription() const
 {
-    return TEXT("Graph ops: add_variable, set_default, add_branch, call_function, add_print_string_on_begin_play.");
+    return TEXT("Graph ops: add_variable, remove_variable, set_default, add_branch, call_function, remove_function_call, remove_nodes, disconnect_pin, add_print_string_on_begin_play.");
 }
 
 FAgentActionResult FModifyBlueprintGraphAction::Execute(const FAgentActionRequest& Request)
@@ -654,12 +754,47 @@ FAgentActionResult FModifyBlueprintGraphAction::Execute(const FAgentActionReques
         ResultPayload->SetStringField(TEXT("default_value"), DefaultValue);
         ResultPayload->SetStringField(TEXT("category"), Category);
     }
+    else if (Operation == TEXT("remove_variable"))
+    {
+        FString VariableName;
+        bool bFailIfMissing = false;
+        Payload->TryGetStringField(TEXT("variable_name"), VariableName);
+        Payload->TryGetBoolField(TEXT("fail_if_missing"), bFailIfMissing);
+
+        if (VariableName.IsEmpty())
+        {
+            return {false, TEXT("Missing required field for remove_variable: variable_name"), TEXT("")};
+        }
+
+        UBlueprint* ExistingVarOwner = nullptr;
+        const int32 ExistingIndex = FBlueprintEditorUtils::FindNewVariableIndexAndBlueprint(Blueprint, FName(*VariableName), ExistingVarOwner);
+        if (ExistingIndex == INDEX_NONE)
+        {
+            if (bFailIfMissing)
+            {
+                return {false, FString::Printf(TEXT("Variable not found: %s"), *VariableName), TEXT("")};
+            }
+            ResultPayload->SetStringField(TEXT("variable_name"), VariableName);
+            ResultPayload->SetBoolField(TEXT("removed"), false);
+            ResultPayload->SetBoolField(TEXT("missing"), true);
+        }
+        else
+        {
+            FBlueprintEditorUtils::RemoveMemberVariable(Blueprint, FName(*VariableName));
+            bMutatedBlueprint = true;
+            ResultPayload->SetStringField(TEXT("variable_name"), VariableName);
+            ResultPayload->SetBoolField(TEXT("removed"), true);
+            ResultPayload->SetBoolField(TEXT("missing"), false);
+        }
+    }
     else if (Operation == TEXT("set_default"))
     {
         FString VariableName;
         FString DefaultValue;
         FString FunctionClassPath;
         FString FunctionName;
+        FString NodeNameContains;
+        FString NodeTitleContains;
         FString PinName = TEXT("InString");
         bool bCreateIfMissing = false;
         FVector2D NodePos(360.0f, 120.0f);
@@ -668,6 +803,8 @@ FAgentActionResult FModifyBlueprintGraphAction::Execute(const FAgentActionReques
         Payload->TryGetStringField(TEXT("default_value"), DefaultValue);
         Payload->TryGetStringField(TEXT("class_path"), FunctionClassPath);
         Payload->TryGetStringField(TEXT("function_name"), FunctionName);
+        Payload->TryGetStringField(TEXT("node_name_contains"), NodeNameContains);
+        Payload->TryGetStringField(TEXT("node_title_contains"), NodeTitleContains);
         Payload->TryGetStringField(TEXT("pin_name"), PinName);
         Payload->TryGetBoolField(TEXT("create_if_missing"), bCreateIfMissing);
         FVector2D ParsedPos;
@@ -718,7 +855,22 @@ FAgentActionResult FModifyBlueprintGraphAction::Execute(const FAgentActionReques
                 };
             }
 
-            UK2Node_CallFunction* CallNode = UnrealAgentPrivate::FindCallFunctionNode(EventGraph, TargetFunction);
+            UK2Node_CallFunction* CallNode = nullptr;
+            TArray<UK2Node_CallFunction*> Candidates = UnrealAgentPrivate::FindCallFunctionNodes(EventGraph, TargetFunction);
+            for (UK2Node_CallFunction* Candidate : Candidates)
+            {
+                if (UnrealAgentPrivate::NodeMatchesGenericFilters(
+                        Candidate,
+                        NodeNameContains,
+                        NodeTitleContains,
+                        TEXT(""),
+                        FunctionClassPath,
+                        FunctionName))
+                {
+                    CallNode = Candidate;
+                    break;
+                }
+            }
             bool bCreatedNode = false;
             if (CallNode == nullptr && bCreateIfMissing)
             {
@@ -738,11 +890,72 @@ FAgentActionResult FModifyBlueprintGraphAction::Execute(const FAgentActionReques
                 return {false, FString::Printf(TEXT("Pin not found: %s"), *PinName), TEXT("")};
             }
 
-            TargetPin->DefaultValue = DefaultValue;
+            const bool bObjectLikePin =
+                TargetPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Object ||
+                TargetPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Class ||
+                TargetPin->PinType.PinCategory == UEdGraphSchema_K2::PC_SoftObject ||
+                TargetPin->PinType.PinCategory == UEdGraphSchema_K2::PC_SoftClass;
+
+            if (bObjectLikePin)
+            {
+                FString ObjectDefaultPath = DefaultValue;
+                ObjectDefaultPath.TrimStartAndEndInline();
+                if (ObjectDefaultPath.StartsWith(TEXT("\"")) && ObjectDefaultPath.EndsWith(TEXT("\"")) && ObjectDefaultPath.Len() >= 2)
+                {
+                    ObjectDefaultPath = ObjectDefaultPath.Mid(1, ObjectDefaultPath.Len() - 2);
+                }
+                const int32 FirstQuote = ObjectDefaultPath.Find(TEXT("'"));
+                const int32 LastQuote = ObjectDefaultPath.Find(TEXT("'"), ESearchCase::IgnoreCase, ESearchDir::FromEnd);
+                if (FirstQuote != INDEX_NONE && LastQuote != INDEX_NONE && LastQuote > FirstQuote)
+                {
+                    ObjectDefaultPath = ObjectDefaultPath.Mid(FirstQuote + 1, LastQuote - FirstQuote - 1);
+                }
+
+                UObject* LoadedObject = StaticLoadObject(UObject::StaticClass(), nullptr, *ObjectDefaultPath);
+                if (LoadedObject == nullptr)
+                {
+                    LoadedObject = LoadObject<UObject>(nullptr, *ObjectDefaultPath);
+                }
+                if (LoadedObject == nullptr)
+                {
+                    return {false, FString::Printf(TEXT("Could not resolve object default for pin %s: %s"), *PinName, *DefaultValue), TEXT("")};
+                }
+
+                TargetPin->DefaultObject = LoadedObject;
+                // Object/class pins should rely on DefaultObject rather than string literals.
+                // Leaving stale DefaultValue strings can produce invalid-pin compile failures.
+                TargetPin->DefaultValue = TEXT("");
+                TargetPin->DefaultTextValue = FText::GetEmpty();
+                ResultPayload->SetBoolField(TEXT("resolved_object_default"), true);
+                ResultPayload->SetStringField(TEXT("resolved_object_path"), LoadedObject->GetPathName());
+            }
+            else
+            {
+                FString NormalizedDefaultValue = DefaultValue;
+                if (const UEnum* EnumType = Cast<UEnum>(TargetPin->PinType.PinSubCategoryObject.Get()))
+                {
+                    FString Candidate = NormalizedDefaultValue;
+                    Candidate.TrimStartAndEndInline();
+                    if (Candidate.IsNumeric())
+                    {
+                        const int64 ParsedValue = FCString::Atoi64(*Candidate);
+                        if (EnumType->IsValidEnumValue(ParsedValue))
+                        {
+                            Candidate = EnumType->GetNameStringByValue(ParsedValue);
+                        }
+                    }
+                    NormalizedDefaultValue = Candidate;
+                }
+
+                TargetPin->DefaultValue = NormalizedDefaultValue;
+                DefaultValue = NormalizedDefaultValue;
+                ResultPayload->SetBoolField(TEXT("resolved_object_default"), false);
+            }
             bMutatedBlueprint = true;
             ResultPayload->SetStringField(TEXT("target"), TEXT("function_pin"));
             ResultPayload->SetStringField(TEXT("class_path"), FunctionClassPath);
             ResultPayload->SetStringField(TEXT("function_name"), FunctionName);
+            ResultPayload->SetStringField(TEXT("node_name"), CallNode->GetName());
             ResultPayload->SetStringField(TEXT("pin_name"), PinName);
             ResultPayload->SetStringField(TEXT("default_value"), DefaultValue);
             ResultPayload->SetBoolField(TEXT("created_node"), bCreatedNode);
@@ -973,6 +1186,232 @@ FAgentActionResult FModifyBlueprintGraphAction::Execute(const FAgentActionReques
         ResultPayload->SetStringField(TEXT("function_name"), FunctionName);
         ResultPayload->SetStringField(TEXT("exec_source"), ExecSource);
         ResultPayload->SetBoolField(TEXT("created_node"), bCreatedNode);
+    }
+    else if (Operation == TEXT("remove_function_call"))
+    {
+        FString ClassPath;
+        FString FunctionName;
+        bool bRemoveAll = true;
+        bool bDisconnectOnly = false;
+        bool bFailIfMissing = false;
+
+        Payload->TryGetStringField(TEXT("class_path"), ClassPath);
+        Payload->TryGetStringField(TEXT("function_name"), FunctionName);
+        Payload->TryGetBoolField(TEXT("remove_all"), bRemoveAll);
+        Payload->TryGetBoolField(TEXT("disconnect_only"), bDisconnectOnly);
+        Payload->TryGetBoolField(TEXT("fail_if_missing"), bFailIfMissing);
+
+        if (ClassPath.IsEmpty() || FunctionName.IsEmpty())
+        {
+            return {false, TEXT("remove_function_call requires class_path and function_name."), TEXT("")};
+        }
+
+        UFunction* TargetFunction = UnrealAgentPrivate::ResolveFunction(ClassPath, FunctionName);
+        if (TargetFunction == nullptr)
+        {
+            return {
+                false,
+                FString::Printf(TEXT("Could not resolve function %s on %s"), *FunctionName, *ClassPath),
+                TEXT("")
+            };
+        }
+
+        TArray<UK2Node_CallFunction*> Matches = UnrealAgentPrivate::FindCallFunctionNodes(EventGraph, TargetFunction);
+        if (!bRemoveAll && Matches.Num() > 1)
+        {
+            Matches.SetNum(1);
+        }
+
+        if (Matches.Num() == 0)
+        {
+            if (bFailIfMissing)
+            {
+                return {false, TEXT("remove_function_call found no matching nodes."), TEXT("")};
+            }
+            ResultPayload->SetStringField(TEXT("class_path"), ClassPath);
+            ResultPayload->SetStringField(TEXT("function_name"), FunctionName);
+            ResultPayload->SetBoolField(TEXT("disconnect_only"), bDisconnectOnly);
+            ResultPayload->SetNumberField(TEXT("matched_nodes"), 0);
+            ResultPayload->SetNumberField(TEXT("removed_nodes"), 0);
+            ResultPayload->SetNumberField(TEXT("disconnected_nodes"), 0);
+        }
+        else
+        {
+            int32 DisconnectedNodes = 0;
+            int32 RemovedNodes = 0;
+            for (UK2Node_CallFunction* Node : Matches)
+            {
+                if (Node == nullptr)
+                {
+                    continue;
+                }
+                Node->Modify();
+                Node->BreakAllNodeLinks();
+                ++DisconnectedNodes;
+                if (!bDisconnectOnly)
+                {
+                    Node->DestroyNode();
+                    ++RemovedNodes;
+                }
+            }
+
+            bMutatedBlueprint = DisconnectedNodes > 0 || RemovedNodes > 0;
+            ResultPayload->SetStringField(TEXT("class_path"), ClassPath);
+            ResultPayload->SetStringField(TEXT("function_name"), FunctionName);
+            ResultPayload->SetBoolField(TEXT("disconnect_only"), bDisconnectOnly);
+            ResultPayload->SetNumberField(TEXT("matched_nodes"), Matches.Num());
+            ResultPayload->SetNumberField(TEXT("removed_nodes"), RemovedNodes);
+            ResultPayload->SetNumberField(TEXT("disconnected_nodes"), DisconnectedNodes);
+        }
+    }
+    else if (Operation == TEXT("remove_nodes"))
+    {
+        FString NodeNameContains;
+        FString NodeTitleContains;
+        FString NodeClassPath;
+        FString FunctionClassPath;
+        FString FunctionName;
+        bool bRemoveAll = true;
+        bool bDisconnectOnly = false;
+        bool bFailIfMissing = false;
+
+        Payload->TryGetStringField(TEXT("node_name_contains"), NodeNameContains);
+        Payload->TryGetStringField(TEXT("node_title_contains"), NodeTitleContains);
+        Payload->TryGetStringField(TEXT("node_class_path"), NodeClassPath);
+        Payload->TryGetStringField(TEXT("function_class_path"), FunctionClassPath);
+        Payload->TryGetStringField(TEXT("function_name"), FunctionName);
+        Payload->TryGetBoolField(TEXT("remove_all"), bRemoveAll);
+        Payload->TryGetBoolField(TEXT("disconnect_only"), bDisconnectOnly);
+        Payload->TryGetBoolField(TEXT("fail_if_missing"), bFailIfMissing);
+
+        if (NodeNameContains.IsEmpty() && NodeTitleContains.IsEmpty() && NodeClassPath.IsEmpty() && FunctionClassPath.IsEmpty() && FunctionName.IsEmpty())
+        {
+            return {false, TEXT("remove_nodes requires at least one filter field."), TEXT("")};
+        }
+
+        TArray<UEdGraphNode*> Matches;
+        for (UEdGraphNode* Node : EventGraph->Nodes)
+        {
+            if (UnrealAgentPrivate::NodeMatchesGenericFilters(
+                Node,
+                NodeNameContains,
+                NodeTitleContains,
+                NodeClassPath,
+                FunctionClassPath,
+                FunctionName))
+            {
+                Matches.Add(Node);
+            }
+        }
+
+        if (!bRemoveAll && Matches.Num() > 1)
+        {
+            Matches.SetNum(1);
+        }
+
+        if (Matches.Num() == 0)
+        {
+            if (bFailIfMissing)
+            {
+                return {false, TEXT("remove_nodes found no matching nodes."), TEXT("")};
+            }
+            ResultPayload->SetNumberField(TEXT("matched_nodes"), 0);
+            ResultPayload->SetNumberField(TEXT("removed_nodes"), 0);
+            ResultPayload->SetNumberField(TEXT("disconnected_nodes"), 0);
+        }
+        else
+        {
+            int32 DisconnectedNodes = 0;
+            int32 RemovedNodes = 0;
+            for (UEdGraphNode* Node : Matches)
+            {
+                if (Node == nullptr)
+                {
+                    continue;
+                }
+                Node->Modify();
+                Node->BreakAllNodeLinks();
+                ++DisconnectedNodes;
+                if (!bDisconnectOnly)
+                {
+                    Node->DestroyNode();
+                    ++RemovedNodes;
+                }
+            }
+
+            bMutatedBlueprint = DisconnectedNodes > 0 || RemovedNodes > 0;
+            ResultPayload->SetNumberField(TEXT("matched_nodes"), Matches.Num());
+            ResultPayload->SetNumberField(TEXT("removed_nodes"), RemovedNodes);
+            ResultPayload->SetNumberField(TEXT("disconnected_nodes"), DisconnectedNodes);
+        }
+    }
+    else if (Operation == TEXT("disconnect_pin"))
+    {
+        FString FromNodeName;
+        FString FromPinName;
+        FString ToNodeName;
+        FString ToPinName;
+        bool bFailIfMissing = false;
+        Payload->TryGetStringField(TEXT("from_node_name"), FromNodeName);
+        Payload->TryGetStringField(TEXT("from_pin_name"), FromPinName);
+        Payload->TryGetStringField(TEXT("to_node_name"), ToNodeName);
+        Payload->TryGetStringField(TEXT("to_pin_name"), ToPinName);
+        Payload->TryGetBoolField(TEXT("fail_if_missing"), bFailIfMissing);
+
+        if (FromNodeName.IsEmpty() || FromPinName.IsEmpty() || ToNodeName.IsEmpty() || ToPinName.IsEmpty())
+        {
+            return {
+                false,
+                TEXT("disconnect_pin requires from_node_name, from_pin_name, to_node_name, to_pin_name."),
+                TEXT("")
+            };
+        }
+
+        UEdGraphNode* FromNode = UnrealAgentPrivate::FindNodeByName(EventGraph, FromNodeName);
+        UEdGraphNode* ToNode = UnrealAgentPrivate::FindNodeByName(EventGraph, ToNodeName);
+        if (FromNode == nullptr || ToNode == nullptr)
+        {
+            if (bFailIfMissing)
+            {
+                return {false, TEXT("disconnect_pin could not find source or target node."), TEXT("")};
+            }
+            ResultPayload->SetBoolField(TEXT("disconnected"), false);
+            ResultPayload->SetBoolField(TEXT("missing_node"), true);
+        }
+        else
+        {
+            UEdGraphPin* FromPin = FromNode->FindPin(FromPinName);
+            UEdGraphPin* ToPin = ToNode->FindPin(ToPinName);
+            if (FromPin == nullptr || ToPin == nullptr)
+            {
+                if (bFailIfMissing)
+                {
+                    return {false, TEXT("disconnect_pin could not find source or target pin."), TEXT("")};
+                }
+                ResultPayload->SetBoolField(TEXT("disconnected"), false);
+                ResultPayload->SetBoolField(TEXT("missing_pin"), true);
+            }
+            else
+            {
+                const bool bHadLink = FromPin->LinkedTo.Contains(ToPin) || ToPin->LinkedTo.Contains(FromPin);
+                if (bHadLink)
+                {
+                    FromPin->BreakLinkTo(ToPin);
+                    bMutatedBlueprint = true;
+                }
+                else if (bFailIfMissing)
+                {
+                    return {false, TEXT("disconnect_pin did not find an existing link between pins."), TEXT("")};
+                }
+                ResultPayload->SetBoolField(TEXT("disconnected"), bHadLink);
+                ResultPayload->SetBoolField(TEXT("had_link"), bHadLink);
+            }
+        }
+
+        ResultPayload->SetStringField(TEXT("from_node_name"), FromNodeName);
+        ResultPayload->SetStringField(TEXT("from_pin_name"), FromPinName);
+        ResultPayload->SetStringField(TEXT("to_node_name"), ToNodeName);
+        ResultPayload->SetStringField(TEXT("to_pin_name"), ToPinName);
     }
     else
     {

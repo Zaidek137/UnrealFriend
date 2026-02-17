@@ -1,0 +1,20 @@
+{
+  "recipe_id": "world_jump_line_layout",
+  "version": "1.0.0",
+  "description": "Generate a deterministic jump line for parkour traversal tests.",
+  "inputs": [
+    {"name": "count", "type": "integer", "required": false, "default": 16},
+    {"name": "start", "type": "vector3", "required": false, "default": [0, 0, 100]},
+    {"name": "end", "type": "vector3", "required": false, "default": [4000, 1200, 600]}
+  ],
+  "steps": [
+    {"id": "create_jump_line", "action": "layout_along_spline"},
+    {"id": "group_jump_line", "action": "tag_and_group_actors"}
+  ],
+  "post_validations": [
+    {"kind": "assert_world_state", "required_tags": ["JumpLine"], "min_count": 3}
+  ],
+  "outputs": [
+    "spawned_jump_line_count"
+  ]
+}

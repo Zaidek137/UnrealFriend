@@ -1,0 +1,246 @@
+{
+  "updated_at": 1771235112.0144498,
+  "totals": {
+    "recipe_runs": 8,
+    "recipe_validations": 4,
+    "scenario_runs": 9
+  },
+  "success": {
+    "recipe_runs": 6,
+    "recipe_validations": 4,
+    "scenario_runs": 1
+  },
+  "compile_failures": 0,
+  "contradiction_count": 0,
+  "mp_safety_failures": 0,
+  "scenario_failures": 8,
+  "error_codes": {
+    "OK": 22,
+    "SCENARIO_FAILED": 8,
+    "RUN_BUSY": 1,
+    "UPSTREAM_ERROR": 1
+  },
+  "runs": [
+    {
+      "timestamp": 1771233627.1857762,
+      "kind": "recipe_runs",
+      "success": true,
+      "http_status": 200,
+      "profile": "balanced",
+      "release_validation": false,
+      "error_codes": []
+    },
+    {
+      "timestamp": 1771233627.1887062,
+      "kind": "recipe_validations",
+      "success": true,
+      "http_status": 200,
+      "profile": "balanced",
+      "release_validation": true,
+      "error_codes": [
+        "OK"
+      ]
+    },
+    {
+      "timestamp": 1771233627.1909928,
+      "kind": "scenario_runs",
+      "success": false,
+      "http_status": 200,
+      "profile": "balanced",
+      "release_validation": false,
+      "error_codes": [
+        "SCENARIO_FAILED"
+      ]
+    },
+    {
+      "timestamp": 1771233627.193016,
+      "kind": "scenario_runs",
+      "success": false,
+      "http_status": 400,
+      "profile": "balanced",
+      "release_validation": true,
+      "error_codes": [
+        "SCENARIO_FAILED"
+      ]
+    },
+    {
+      "timestamp": 1771233643.461823,
+      "kind": "recipe_runs",
+      "success": true,
+      "http_status": 200,
+      "profile": "balanced",
+      "release_validation": false,
+      "error_codes": []
+    },
+    {
+      "timestamp": 1771233643.4647748,
+      "kind": "recipe_validations",
+      "success": true,
+      "http_status": 200,
+      "profile": "balanced",
+      "release_validation": true,
+      "error_codes": [
+        "OK"
+      ]
+    },
+    {
+      "timestamp": 1771233643.4671319,
+      "kind": "scenario_runs",
+      "success": false,
+      "http_status": 200,
+      "profile": "balanced",
+      "release_validation": false,
+      "error_codes": [
+        "SCENARIO_FAILED"
+      ]
+    },
+    {
+      "timestamp": 1771233643.469196,
+      "kind": "scenario_runs",
+      "success": false,
+      "http_status": 400,
+      "profile": "balanced",
+      "release_validation": true,
+      "error_codes": [
+        "SCENARIO_FAILED"
+      ]
+    },
+    {
+      "timestamp": 1771233685.970144,
+      "kind": "recipe_runs",
+      "success": true,
+      "http_status": 200,
+      "profile": "balanced",
+      "release_validation": false,
+      "error_codes": []
+    },
+    {
+      "timestamp": 1771233685.973161,
+      "kind": "recipe_validations",
+      "success": true,
+      "http_status": 200,
+      "profile": "balanced",
+      "release_validation": true,
+      "error_codes": [
+        "OK"
+      ]
+    },
+    {
+      "timestamp": 1771233685.975459,
+      "kind": "scenario_runs",
+      "success": false,
+      "http_status": 200,
+      "profile": "balanced",
+      "release_validation": false,
+      "error_codes": [
+        "SCENARIO_FAILED"
+      ]
+    },
+    {
+      "timestamp": 1771233685.977652,
+      "kind": "scenario_runs",
+      "success": false,
+      "http_status": 400,
+      "profile": "balanced",
+      "release_validation": true,
+      "error_codes": [
+        "SCENARIO_FAILED"
+      ]
+    },
+    {
+      "timestamp": 1771233710.3789718,
+      "kind": "recipe_runs",
+      "success": true,
+      "http_status": 200,
+      "profile": "balanced",
+      "release_validation": false,
+      "error_codes": []
+    },
+    {
+      "timestamp": 1771233710.3820019,
+      "kind": "recipe_runs",
+      "success": true,
+      "http_status": 200,
+      "profile": "balanced",
+      "release_validation": false,
+      "error_codes": []
+    },
+    {
+      "timestamp": 1771233710.384682,
+      "kind": "recipe_validations",
+      "success": true,
+      "http_status": 200,
+      "profile": "balanced",
+      "release_validation": true,
+      "error_codes": [
+        "OK"
+      ]
+    },
+    {
+      "timestamp": 1771233710.387116,
+      "kind": "scenario_runs",
+      "success": false,
+      "http_status": 200,
+      "profile": "balanced",
+      "release_validation": false,
+      "error_codes": [
+        "SCENARIO_FAILED"
+      ]
+    },
+    {
+      "timestamp": 1771233710.389482,
+      "kind": "scenario_runs",
+      "success": false,
+      "http_status": 400,
+      "profile": "balanced",
+      "release_validation": true,
+      "error_codes": [
+        "SCENARIO_FAILED"
+      ]
+    },
+    {
+      "timestamp": 1771234341.52547,
+      "kind": "recipe_runs",
+      "success": false,
+      "http_status": 409,
+      "profile": "balanced",
+      "release_validation": false,
+      "error_codes": [
+        "RUN_BUSY"
+      ]
+    },
+    {
+      "timestamp": 1771234341.8576682,
+      "kind": "recipe_runs",
+      "success": false,
+      "http_status": 404,
+      "profile": "balanced",
+      "release_validation": false,
+      "error_codes": [
+        "UPSTREAM_ERROR"
+      ]
+    },
+    {
+      "timestamp": 1771235107.860767,
+      "kind": "recipe_runs",
+      "success": true,
+      "http_status": 200,
+      "profile": "balanced",
+      "release_validation": false,
+      "error_codes": [
+        "OK"
+      ]
+    },
+    {
+      "timestamp": 1771235112.014444,
+      "kind": "scenario_runs",
+      "success": true,
+      "http_status": 200,
+      "profile": "balanced",
+      "release_validation": true,
+      "error_codes": [
+        "OK"
+      ]
+    }
+  ]
+}

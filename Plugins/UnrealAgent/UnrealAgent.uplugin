@@ -9,6 +9,20 @@
   "EnabledByDefault": false,
   "CanContainContent": false,
   "IsBetaVersion": true,
+  "Plugins": [
+    {
+      "Name": "EnvironmentQueryEditor",
+      "Enabled": true
+    },
+    {
+      "Name": "Niagara",
+      "Enabled": true
+    },
+    {
+      "Name": "LevelSequenceEditor",
+      "Enabled": true
+    }
+  ],
   "Modules": [
     {
       "Name": "UnrealAgentRuntime",

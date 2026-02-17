@@ -29,6 +29,13 @@
       .wrap { max-width: 1200px; margin: 24px auto; padding: 0 14px; }
       h1 { margin: 0 0 6px; font-size: 28px; }
       .sub { color: var(--muted); margin-bottom: 14px; }
+      .sub a {
+        color: #73c7ff;
+        font-weight: 600;
+        text-decoration: none;
+        border-bottom: 1px solid rgba(115, 199, 255, 0.45);
+      }
+      .sub a:hover { color: #a7ddff; }
       .grid { display: grid; grid-template-columns: 340px 1fr; gap: 14px; }
       .panel {
         background: linear-gradient(180deg, var(--panel), var(--panel-2));
@@ -96,13 +103,72 @@
       .composer { display: grid; gap: 8px; margin-top: 10px; }
       .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
       .hidden { display: none; }
+      .tutorial {
+        margin-bottom: 14px;
+        background: linear-gradient(180deg, #162433, #0f1924);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 12px;
+      }
+      .tutorial h2 {
+        margin: 0 0 8px;
+        font-size: 15px;
+      }
+      .tutorial p {
+        margin: 0 0 8px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .tutorial ol {
+        margin: 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 6px;
+        font-size: 13px;
+      }
+      .tutorial code {
+        background: #0a0f15;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 1px 6px;
+      }
+      .debugOut {
+        min-height: 170px;
+        max-height: 320px;
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: #0a0f15;
+        padding: 8px;
+        font-size: 12px;
+        white-space: pre-wrap;
+      }
+      .tiny { font-size: 11px; color: var(--muted); }
       @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
     </style>
   </head>
   <body>
     <div class="wrap">
       <h1>Unreal Agent Chat</h1>
-      <div class="sub">Natural language only. No terminal commands required for normal operation.</div>
+      <div class="sub">
+        Natural language only. No terminal commands required for normal operation.
+        <a href="/capabilities">What your Unreal Friend can do</a>
+      </div>
+
+      <section class="tutorial">
+        <h2>How To Use This Tool</h2>
+        <p>Use this as the control panel for Unreal actions, strict Blueprint analysis, and debugging traces.</p>
+        <ol>
+          <li>In Unreal, keep your project open with the Unreal Agent plugin enabled, then click <code>Health</code> to confirm connection.</li>
+          <li>Set <code>Unreal Base URL</code> to your bridge (default <code>http://127.0.0.1:47777/unreal-agent/v1</code>) and click <code>Save</code>.</li>
+          <li>In <code>Chat</code>, type natural requests like “Create BP_EnemyScout, add BeginPlay print, compile.”</li>
+          <li>Use <code>Dry Run=true</code> to preview planned actions without mutating assets.</li>
+          <li>If mutations are blocked, click <code>Approve & Retry</code> to continue safely.</li>
+          <li>Use <code>Debug Traces</code> to inspect failures quickly. Filter by terms like <code>run-plan</code>, <code>ANALYSIS_CONTRADICTION</code>, or <code>compile_blueprint</code>.</li>
+          <li>Use <code>List Recipes</code> and <code>Release Metrics</code> to verify deterministic coverage and current pass-rate progress.</li>
+          <li>When analysis is requested, trust the deterministic result + evidence links over free-form model guesses.</li>
+        </ol>
+      </section>
 
       <div class="grid">
         <div class="stack">
@@ -144,6 +210,241 @@
                   <option value="true">true</option>
                 </select>
               </label>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Debug Traces</h2>
+            <div class="stack">
+              <div class="row-2">
+                <label>Limit <input id="debugLimit" value="50" /></label>
+                <label>Filter <input id="debugFilter" placeholder="run-plan / error code" /></label>
+              </div>
+              <div class="btns">
+                <button id="loadDebugTraces">Load Traces</button>
+                <button id="clearDebugTraces" class="warn">Clear Traces</button>
+                <button id="copyDebugTrace">Copy Latest</button>
+              </div>
+              <div id="debugStatus" class="status">No trace loaded</div>
+              <div id="debugOutput" class="debugOut">[]</div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Recipes And Metrics</h2>
+            <div class="stack">
+              <div class="btns">
+                <button id="loadRecipes">List Recipes</button>
+                <button id="loadReleaseMetrics">Release Metrics</button>
+              </div>
+              <div id="recipeStatus" class="status">No recipe data loaded</div>
+              <div id="recipeOutput" class="debugOut">[]</div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Paid Live Session Logs</h2>
+            <div class="stack">
+              <label>Paid Token <input id="paidToken" placeholder="paid-token" /></label>
+              <div class="row-2">
+                <label>User ID <input id="paidUserId" placeholder="user-123" /></label>
+                <label>Project Label <input id="paidProjectLabel" placeholder="ScavTest" /></label>
+              </div>
+              <label>Session ID <input id="paidSessionId" placeholder="pls_..." /></label>
+              <div class="btns">
+                <button id="startPaidSession" class="good">Start Session</button>
+                <button id="endPaidSession" class="warn">End Session</button>
+                <button id="connectPaidStream">Connect Stream</button>
+                <button id="disconnectPaidStream">Disconnect Stream</button>
+              </div>
+              <div class="btns">
+                <button id="refreshPaidLogs">Refresh Logs</button>
+                <button id="downloadPaidLogs">Download JSON</button>
+              </div>
+              <div id="paidStatus" class="status">No paid session connected</div>
+              <div class="tiny">Stream is session-scoped major updates. Chat runs include session_id automatically when set.</div>
+              <div id="paidOutput" class="debugOut">[]</div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Refactor Studio</h2>
+            <div class="stack">
+              <label>Blueprint Path <input id="refactorBlueprintPath" placeholder="/Game/Test/BP_Example" /></label>
+              <div class="row-2">
+                <label>Mode
+                  <select id="refactorMode">
+                    <option value="asset">asset</option>
+                    <option value="graph">graph</option>
+                  </select>
+                </label>
+                <label>Profile
+                  <select id="refactorProfile">
+                    <option value="balanced">balanced</option>
+                    <option value="strict">strict</option>
+                    <option value="aggressive">aggressive</option>
+                  </select>
+                </label>
+              </div>
+              <label>Transform IDs JSON <textarea id="refactorTransformIds">[]</textarea></label>
+              <label>Transform Inputs JSON <textarea id="refactorTransformInputs">{}</textarea></label>
+              <label>Execution Run ID (for timeline/diff) <input id="refactorRunId" placeholder="exec_..." /></label>
+              <div class="btns">
+                <button id="loadRefactorCatalog">Catalog</button>
+                <button id="previewRefactor">Preview</button>
+                <button id="applyRefactor" class="warn">Apply</button>
+                <button id="loadRefactorRunDetail">Run Detail</button>
+              </div>
+              <div id="refactorStatus" class="status">No refactor run yet</div>
+              <div id="refactorOutput" class="debugOut">[]</div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Explain Studio</h2>
+            <div class="stack">
+              <label>Blueprint Path <input id="explainBlueprintPath" placeholder="/Game/Test/BP_Example" /></label>
+              <label>Graph Name (optional) <input id="explainGraphName" placeholder="EventGraph" /></label>
+              <label>Node Names JSON <textarea id="explainNodeNames">[]</textarea></label>
+              <label>Screenshot Image Path <input id="explainImagePath" placeholder="/abs/path/to/shot.png" /></label>
+              <div class="btns">
+                <button id="runExplainSelection">Explain Selection</button>
+                <button id="runExplainScreenshot">Explain Screenshot</button>
+              </div>
+              <div id="explainStatus" class="status">No explain run yet</div>
+              <div id="explainOutput" class="debugOut">[]</div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Project Intelligence</h2>
+            <div class="stack">
+              <label>Package Path <input id="intelPackagePath" value="/Game" /></label>
+              <div class="row-2">
+                <label>Depth <input id="intelDepth" value="2" /></label>
+                <label>Max Assets <input id="intelMaxAssets" value="300" /></label>
+              </div>
+              <label>Impact Asset Paths JSON <textarea id="impactAssetPaths">["/Game/Test/BP_Example"]</textarea></label>
+              <div class="btns">
+                <button id="loadProjectDeps">Dependencies</button>
+                <button id="loadPerfHotspots">Perf Hotspots</button>
+                <button id="runImpactAnalysis">Impact Analysis</button>
+              </div>
+              <div id="intelStatus" class="status">No intelligence run yet</div>
+              <div id="intelOutput" class="debugOut">[]</div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>UMG And World</h2>
+            <div class="stack">
+              <label>UMG Widget Blueprint <input id="umgWidgetBlueprint" placeholder="/Game/AgentGenerated/UI/WBP_AgentGenerated" /></label>
+              <div class="row-2">
+                <label>Template <input id="umgTemplateId" value="hud_basic" /></label>
+                <label>Style <input id="umgStylePreset" value="minimal" /></label>
+              </div>
+              <label>World Layout ID <input id="worldLayoutId" value="city_grid" /></label>
+              <label>World Bounds JSON <textarea id="worldBounds">[0,0,5000,5000]</textarea></label>
+              <label>World Constraints JSON <textarea id="worldConstraints">{}</textarea></label>
+              <div class="btns">
+                <button id="runUmgGenerate">Generate UMG</button>
+                <button id="runWorldGenerate">Generate World</button>
+              </div>
+              <div id="genStatus" class="status">No generation run yet</div>
+              <div id="genOutput" class="debugOut">[]</div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Blueprint Control Lab</h2>
+            <div class="stack">
+              <label>Blueprint Path <input id="controlBlueprintPath" placeholder="/Game/Test/BP_Example" /></label>
+              <div class="row-2">
+                <label>Graph Kind
+                  <select id="controlGraphKind">
+                    <option value="function">function</option>
+                    <option value="macro">macro</option>
+                  </select>
+                </label>
+                <label>Graph Name <input id="controlGraphName" placeholder="AgentNewFunction" /></label>
+              </div>
+              <div class="row-2">
+                <label>Component Operation
+                  <select id="controlComponentOp">
+                    <option value="add_component">add_component</option>
+                    <option value="remove_component">remove_component</option>
+                    <option value="set_component_property">set_component_property</option>
+                  </select>
+                </label>
+                <label>Component Name <input id="controlComponentName" placeholder="AgentMesh" /></label>
+              </div>
+              <div class="row-2">
+                <label>Graph Node Operation
+                  <select id="controlNodeOp">
+                    <option value="spawn_function_call">spawn_function_call</option>
+                    <option value="replace_function_call">replace_function_call</option>
+                  </select>
+                </label>
+                <label>Graph Name (pin/node ops) <input id="controlGraphTargetName" placeholder="EventGraph" /></label>
+              </div>
+              <div class="row-2">
+                <label>Function Class Path <input id="controlFunctionClassPath" placeholder="/Script/Engine.KismetSystemLibrary" /></label>
+                <label>Function Name <input id="controlFunctionName" placeholder="PrintString" /></label>
+              </div>
+              <div class="row-2">
+                <label>From Node / Pin <input id="controlFromNodePin" placeholder="K2Node_Event_BeginPlay:then" /></label>
+                <label>To Node / Pin <input id="controlToNodePin" placeholder="K2Node_CallFunction_0:execute" /></label>
+              </div>
+              <label>Replace Target Node Name <input id="controlReplaceTargetNode" placeholder="K2Node_CallFunction_0" /></label>
+              <label>Class Path (component add) <input id="controlClassPath" placeholder="/Script/Engine.StaticMeshComponent" /></label>
+              <label>Property Name (reflection) <input id="controlPropertyName" placeholder="bHiddenInGame" /></label>
+              <label>Value JSON <textarea id="controlValueJson">true</textarea></label>
+              <div class="btns">
+                <button id="runPropertyReflect">Set Property</button>
+                <button id="runFunctionAuthor">Create Function/Macro</button>
+                <button id="runComponentHierarchy">Edit Components</button>
+                <button id="runPinWire">Wire Pins</button>
+                <button id="runNodeAuthor">Author Node</button>
+                <button id="runCompileDiagnostics">Compile Diagnostics</button>
+              </div>
+              <div id="controlStatus" class="status">No control-lab run yet</div>
+              <div id="controlOutput" class="debugOut">[]</div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Compile Gate And Rollback</h2>
+            <div class="stack">
+              <label>Blueprint Paths JSON <textarea id="gateBlueprintPaths">["/Game/Test/BP_Example"]</textarea></label>
+              <div class="row-2">
+                <label>Pattern ID
+                  <select id="patternId">
+                    <option value="begin_play_print">begin_play_print</option>
+                    <option value="begin_play_delay_print">begin_play_delay_print</option>
+                  </select>
+                </label>
+                <label>Rollback Token <input id="rollbackToken" placeholder="gs_..." /></label>
+              </div>
+              <div class="btns">
+                <button id="runCompileGate">Run Compile Gate</button>
+                <button id="loadPatternCatalog">Pattern Catalog</button>
+                <button id="previewPattern">Preview Pattern</button>
+                <button id="applyPattern">Apply Pattern</button>
+                <button id="applyRollback">Apply Rollback</button>
+              </div>
+              <div id="gateStatus" class="status">No compile gate run yet</div>
+              <div id="gateOutput" class="debugOut">[]</div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Claims Evidence</h2>
+            <div class="stack">
+              <div class="btns">
+                <button id="loadClaimsEvidence">Load Claims Evidence</button>
+              </div>
+              <div id="claimsStatus" class="status">No evidence loaded</div>
+              <div id="claimsOutput" class="debugOut">[]</div>
             </div>
           </section>
         </div>
@@ -188,7 +489,30 @@
       const runStatus = document.getElementById("runStatus");
       const chatLog = document.getElementById("chatLog");
       const approveAndRetryBtn = document.getElementById("approveAndRetry");
+      const debugStatus = document.getElementById("debugStatus");
+      const debugOutput = document.getElementById("debugOutput");
+      const recipeStatus = document.getElementById("recipeStatus");
+      const recipeOutput = document.getElementById("recipeOutput");
+      const paidStatus = document.getElementById("paidStatus");
+      const paidOutput = document.getElementById("paidOutput");
+      const refactorStatus = document.getElementById("refactorStatus");
+      const refactorOutput = document.getElementById("refactorOutput");
+      const explainStatus = document.getElementById("explainStatus");
+      const explainOutput = document.getElementById("explainOutput");
+      const intelStatus = document.getElementById("intelStatus");
+      const intelOutput = document.getElementById("intelOutput");
+      const genStatus = document.getElementById("genStatus");
+      const genOutput = document.getElementById("genOutput");
+      const controlStatus = document.getElementById("controlStatus");
+      const controlOutput = document.getElementById("controlOutput");
+      const gateStatus = document.getElementById("gateStatus");
+      const gateOutput = document.getElementById("gateOutput");
+      const claimsStatus = document.getElementById("claimsStatus");
+      const claimsOutput = document.getElementById("claimsOutput");
       let lastPendingRequest = null;
+      let lastTracePayload = null;
+      let paidStream = null;
+      let paidEvents = [];
 
       function setStatus(el, text, cls = "") {
         el.className = `status ${cls}`.trim();
@@ -208,10 +532,35 @@
         return { status: res.status, data: json };
       }
 
+      async function apiWithHeaders(path, method = "GET", body = null, headers = {}) {
+        const options = { method, headers: { "Content-Type": "application/json", ...headers } };
+        if (body !== null) options.body = JSON.stringify(body);
+        const res = await fetch(path, options);
+        let json;
+        try {
+          json = await res.json();
+        } catch {
+          json = { success: false, message: "Invalid JSON response." };
+        }
+        return { status: res.status, data: json };
+      }
+
       function parseContext() {
         const raw = document.getElementById("goalContext").value.trim();
         if (!raw) return {};
         return JSON.parse(raw);
+      }
+
+      function parseJsonField(id, fallback) {
+        const raw = (document.getElementById(id).value || "").trim();
+        if (!raw) return fallback;
+        return JSON.parse(raw);
+      }
+
+      function setPanelResult(statusEl, outputEl, response, okText) {
+        const ok = !!(response && response.data && response.data.success);
+        setStatus(statusEl, ok ? okText : (response.data && response.data.message) || "Request failed", ok ? "ok" : "err");
+        outputEl.textContent = JSON.stringify((response && response.data) || response, null, 2);
       }
 
       function addMessage(kind, text, raw = null) {
@@ -228,6 +577,32 @@
 
         chatLog.appendChild(div);
         chatLog.scrollTop = chatLog.scrollHeight;
+      }
+
+      function renderPaidEvents() {
+        paidOutput.textContent = JSON.stringify(paidEvents, null, 2);
+      }
+
+      function pushPaidEvent(event) {
+        paidEvents.push(event);
+        if (paidEvents.length > 600) paidEvents = paidEvents.slice(-600);
+        renderPaidEvents();
+      }
+
+      function currentPaidToken() {
+        return document.getElementById("paidToken").value.trim();
+      }
+
+      function currentPaidSessionId() {
+        return document.getElementById("paidSessionId").value.trim();
+      }
+
+      function stopPaidStream() {
+        if (paidStream) {
+          paidStream.close();
+          paidStream = null;
+          setStatus(paidStatus, "Stream disconnected");
+        }
       }
 
       async function loadSettings() {
@@ -280,6 +655,72 @@
         addMessage("system", "Editor state snapshot.", res.data);
       }
 
+      async function loadDebugTraces() {
+        const limit = encodeURIComponent((document.getElementById("debugLimit").value || "50").trim());
+        const filter = encodeURIComponent((document.getElementById("debugFilter").value || "").trim());
+        const q = filter ? `?limit=${limit}&filter=${filter}` : `?limit=${limit}`;
+        const res = await api(`/api/debug/traces${q}`);
+        if (!res.data.success) {
+          setStatus(debugStatus, res.data.message || "Failed to load traces", "err");
+          debugOutput.textContent = JSON.stringify(res.data, null, 2);
+          return;
+        }
+        lastTracePayload = res.data;
+        const count = Number(res.data.count || 0);
+        setStatus(debugStatus, `Loaded ${count} trace(s)`, "ok");
+        debugOutput.textContent = JSON.stringify(res.data.traces || [], null, 2);
+      }
+
+      async function clearDebugTraces() {
+        const res = await api("/api/debug/clear", "POST", {});
+        if (!res.data.success) {
+          setStatus(debugStatus, res.data.message || "Failed to clear traces", "err");
+          return;
+        }
+        lastTracePayload = null;
+        debugOutput.textContent = "[]";
+        setStatus(debugStatus, "Traces cleared", "ok");
+      }
+
+      async function copyLatestTrace() {
+        const traces = lastTracePayload && Array.isArray(lastTracePayload.traces) ? lastTracePayload.traces : [];
+        if (!traces.length) {
+          setStatus(debugStatus, "No traces to copy", "err");
+          return;
+        }
+        const latest = traces[0];
+        try {
+          await navigator.clipboard.writeText(JSON.stringify(latest, null, 2));
+          setStatus(debugStatus, "Latest trace copied", "ok");
+        } catch (err) {
+          setStatus(debugStatus, "Clipboard copy failed", "err");
+        }
+      }
+
+      async function loadRecipes() {
+        const res = await api("/api/recipes");
+        if (!res.data.success) {
+          setStatus(recipeStatus, res.data.message || "Failed to load recipes", "err");
+          recipeOutput.textContent = JSON.stringify(res.data, null, 2);
+          return;
+        }
+        const recipes = Array.isArray(res.data.recipes) ? res.data.recipes : [];
+        setStatus(recipeStatus, `Loaded ${recipes.length} recipe(s)`, "ok");
+        recipeOutput.textContent = JSON.stringify(recipes, null, 2);
+      }
+
+      async function loadReleaseMetrics() {
+        const res = await api("/api/release-metrics");
+        if (!res.data.success) {
+          setStatus(recipeStatus, res.data.message || "Failed to load metrics", "err");
+          recipeOutput.textContent = JSON.stringify(res.data, null, 2);
+          return;
+        }
+        const pass = typeof res.data.pass_rate === "number" ? `${(res.data.pass_rate * 100).toFixed(1)}%` : "n/a";
+        setStatus(recipeStatus, `Metrics loaded (pass ${pass})`, "ok");
+        recipeOutput.textContent = JSON.stringify(res.data, null, 2);
+      }
+
       async function sendChat(withApprovalToken = "") {
         try {
           const message = document.getElementById("chatInput").value.trim();
@@ -294,6 +735,7 @@
             stop_on_error: document.getElementById("stopOnError").value === "true",
             goal_context: parseContext(),
             approval_token: withApprovalToken,
+            session_id: currentPaidSessionId(),
           };
 
           const res = await api("/api/chat", "POST", payload);
@@ -321,6 +763,462 @@
         }
       }
 
+      async function startPaidSession() {
+        const paid_token = currentPaidToken();
+        if (!paid_token) {
+          setStatus(paidStatus, "Paid token required", "err");
+          return;
+        }
+        const payload = {
+          paid_token,
+          user_id: document.getElementById("paidUserId").value.trim(),
+          project_label: document.getElementById("paidProjectLabel").value.trim(),
+        };
+        const res = await api("/api/paid/session/start", "POST", payload);
+        if (!res.data.success) {
+          setStatus(paidStatus, res.data.message || "Failed to start paid session", "err");
+          return;
+        }
+        document.getElementById("paidSessionId").value = res.data.session_id || "";
+        setStatus(paidStatus, "Paid session started", "ok");
+        paidEvents = [];
+        renderPaidEvents();
+      }
+
+      async function endPaidSession() {
+        const paid_token = currentPaidToken();
+        const session_id = currentPaidSessionId();
+        if (!paid_token || !session_id) {
+          setStatus(paidStatus, "Paid token and session id required", "err");
+          return;
+        }
+        const res = await api("/api/paid/session/end", "POST", { paid_token, session_id });
+        if (!res.data.success) {
+          setStatus(paidStatus, res.data.message || "Failed to end paid session", "err");
+          return;
+        }
+        stopPaidStream();
+        setStatus(paidStatus, "Paid session ended", "ok");
+      }
+
+      async function refreshPaidLogs() {
+        const paid_token = currentPaidToken();
+        const session_id = currentPaidSessionId();
+        if (!paid_token || !session_id) {
+          setStatus(paidStatus, "Paid token and session id required", "err");
+          return;
+        }
+        const url = `/api/paid/session/logs?session_id=${encodeURIComponent(session_id)}&limit=500`;
+        const res = await apiWithHeaders(url, "GET", null, { "X-Paid-Token": paid_token });
+        if (!res.data.success) {
+          setStatus(paidStatus, res.data.message || "Failed to load paid logs", "err");
+          return;
+        }
+        paidEvents = Array.isArray(res.data.events) ? res.data.events : [];
+        renderPaidEvents();
+        setStatus(paidStatus, `Loaded ${paidEvents.length} event(s)`, "ok");
+      }
+
+      function connectPaidStream() {
+        const paid_token = currentPaidToken();
+        const session_id = currentPaidSessionId();
+        if (!paid_token || !session_id) {
+          setStatus(paidStatus, "Paid token and session id required", "err");
+          return;
+        }
+        stopPaidStream();
+        const url = `/api/paid/session/stream?session_id=${encodeURIComponent(session_id)}&paid_token=${encodeURIComponent(paid_token)}`;
+        paidStream = new EventSource(url);
+        paidStream.onopen = () => setStatus(paidStatus, "Paid stream connected", "ok");
+        paidStream.onmessage = (event) => {
+          try {
+            const item = JSON.parse(event.data);
+            pushPaidEvent(item);
+          } catch {
+            pushPaidEvent({ raw: event.data, timestamp: Date.now() / 1000 });
+          }
+        };
+        paidStream.onerror = () => {
+          setStatus(paidStatus, "Paid stream error/disconnected", "err");
+        };
+      }
+
+      function downloadPaidLogs() {
+        const session_id = currentPaidSessionId() || "paid-session";
+        const blob = new Blob([JSON.stringify(paidEvents, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${session_id}-events.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      function buildRefactorPayload() {
+        return {
+          blueprint_path: document.getElementById("refactorBlueprintPath").value.trim(),
+          mode: document.getElementById("refactorMode").value,
+          profile: document.getElementById("refactorProfile").value,
+          transform_ids: parseJsonField("refactorTransformIds", []),
+          transform_inputs: parseJsonField("refactorTransformInputs", {}),
+        };
+      }
+
+      async function loadRefactorCatalog() {
+        try {
+          const payload = buildRefactorPayload();
+          const res = await api("/api/refactor-catalog", "POST", payload);
+          setPanelResult(refactorStatus, refactorOutput, res, "Catalog loaded");
+        } catch (err) {
+          setStatus(refactorStatus, err.message || String(err), "err");
+        }
+      }
+
+      async function previewRefactor() {
+        try {
+          const payload = buildRefactorPayload();
+          payload.dry_run = true;
+          payload.stop_on_error = true;
+          const res = await api("/api/refactor-preview", "POST", payload);
+          setPanelResult(refactorStatus, refactorOutput, res, "Preview generated");
+        } catch (err) {
+          setStatus(refactorStatus, err.message || String(err), "err");
+        }
+      }
+
+      async function applyRefactor() {
+        try {
+          const payload = buildRefactorPayload();
+          payload.dry_run = document.getElementById("dryRun").value === "true";
+          payload.stop_on_error = true;
+          const res = await api("/api/refactor-apply", "POST", payload);
+          const runId = res && res.data ? String(res.data.execution_run_id || "").trim() : "";
+          if (runId) {
+            document.getElementById("refactorRunId").value = runId;
+          }
+          setPanelResult(refactorStatus, refactorOutput, res, "Refactor apply completed");
+        } catch (err) {
+          setStatus(refactorStatus, err.message || String(err), "err");
+        }
+      }
+
+      async function loadRefactorRunDetail() {
+        try {
+          const runId = document.getElementById("refactorRunId").value.trim();
+          if (!runId) throw new Error("Execution run id is required.");
+          const res = await api(`/api/execution-run-detail?run_id=${encodeURIComponent(runId)}`);
+          setPanelResult(refactorStatus, refactorOutput, res, "Run detail loaded");
+        } catch (err) {
+          setStatus(refactorStatus, err.message || String(err), "err");
+        }
+      }
+
+      async function runExplainSelection() {
+        try {
+          const payload = {
+            blueprint_path: document.getElementById("explainBlueprintPath").value.trim(),
+            graph_name: document.getElementById("explainGraphName").value.trim(),
+            node_names: parseJsonField("explainNodeNames", []),
+          };
+          const res = await api("/api/explain-selection", "POST", payload);
+          setPanelResult(explainStatus, explainOutput, res, "Selection explanation generated");
+        } catch (err) {
+          setStatus(explainStatus, err.message || String(err), "err");
+        }
+      }
+
+      async function runExplainScreenshot() {
+        try {
+          const payload = {
+            image_path: document.getElementById("explainImagePath").value.trim(),
+            blueprint_path: document.getElementById("explainBlueprintPath").value.trim(),
+            graph_name: document.getElementById("explainGraphName").value.trim(),
+          };
+          const res = await api("/api/explain-screenshot", "POST", payload);
+          setPanelResult(explainStatus, explainOutput, res, "Screenshot explanation generated");
+        } catch (err) {
+          setStatus(explainStatus, err.message || String(err), "err");
+        }
+      }
+
+      async function loadProjectDeps() {
+        try {
+          const payload = {
+            package_path: document.getElementById("intelPackagePath").value.trim() || "/Game",
+            recursive: true,
+            depth: Number((document.getElementById("intelDepth").value || "2").trim()),
+            max_assets: Number((document.getElementById("intelMaxAssets").value || "300").trim()),
+          };
+          const res = await api("/api/project-dependencies", "POST", payload);
+          setPanelResult(intelStatus, intelOutput, res, "Dependency graph loaded");
+        } catch (err) {
+          setStatus(intelStatus, err.message || String(err), "err");
+        }
+      }
+
+      async function loadPerfHotspots() {
+        try {
+          const payload = {
+            package_path: document.getElementById("intelPackagePath").value.trim() || "/Game",
+            recursive: true,
+            analyze_blueprints: true,
+            max_assets: Number((document.getElementById("intelMaxAssets").value || "300").trim()),
+          };
+          const res = await api("/api/perf-hotspots", "POST", payload);
+          setPanelResult(intelStatus, intelOutput, res, "Perf hotspots loaded");
+        } catch (err) {
+          setStatus(intelStatus, err.message || String(err), "err");
+        }
+      }
+
+      async function runImpactAnalysis() {
+        try {
+          const payload = {
+            asset_paths: parseJsonField("impactAssetPaths", []),
+            change_type: "modify_blueprint_graph",
+          };
+          const res = await api("/api/impact-analysis", "POST", payload);
+          setPanelResult(intelStatus, intelOutput, res, "Impact analysis completed");
+        } catch (err) {
+          setStatus(intelStatus, err.message || String(err), "err");
+        }
+      }
+
+      async function runUmgGenerate() {
+        try {
+          const payload = {
+            widget_blueprint: document.getElementById("umgWidgetBlueprint").value.trim(),
+            template_id: document.getElementById("umgTemplateId").value.trim(),
+            style_preset: document.getElementById("umgStylePreset").value.trim(),
+            bindings: [],
+          };
+          const res = await api("/api/umg-generate", "POST", payload);
+          setPanelResult(genStatus, genOutput, res, "UMG generation completed");
+        } catch (err) {
+          setStatus(genStatus, err.message || String(err), "err");
+        }
+      }
+
+      async function runWorldGenerate() {
+        try {
+          const payload = {
+            layout_id: document.getElementById("worldLayoutId").value.trim(),
+            bounds: parseJsonField("worldBounds", [0, 0, 5000, 5000]),
+            density: 1.0,
+            seed: 1337,
+            constraints: parseJsonField("worldConstraints", {}),
+          };
+          const res = await api("/api/world-generate", "POST", payload);
+          setPanelResult(genStatus, genOutput, res, "World generation completed");
+        } catch (err) {
+          setStatus(genStatus, err.message || String(err), "err");
+        }
+      }
+
+      async function loadClaimsEvidence() {
+        try {
+          const res = await api("/api/claims-evidence");
+          setPanelResult(claimsStatus, claimsOutput, res, "Claims evidence loaded");
+        } catch (err) {
+          setStatus(claimsStatus, err.message || String(err), "err");
+        }
+      }
+
+      function controlBasePayload() {
+        return {
+          blueprint_path: document.getElementById("controlBlueprintPath").value.trim(),
+          property_name: document.getElementById("controlPropertyName").value.trim(),
+          value: parseJsonField("controlValueJson", true),
+        };
+      }
+
+      function parseNodePin(raw) {
+        const text = String(raw || "").trim();
+        if (!text.includes(":")) return { node_name: text, pin_name: "" };
+        const parts = text.split(":");
+        return { node_name: (parts[0] || "").trim(), pin_name: (parts[1] || "").trim() };
+      }
+
+      async function runPropertyReflect() {
+        try {
+          const payload = {
+            ...controlBasePayload(),
+            target_type: "blueprint_cdo",
+            compile_after: false,
+            dry_run: document.getElementById("dryRun").value === "true",
+          };
+          const res = await api("/api/property-reflect", "POST", payload);
+          setPanelResult(controlStatus, controlOutput, res, "Property reflect complete");
+        } catch (err) {
+          setStatus(controlStatus, err.message || String(err), "err");
+        }
+      }
+
+      async function runFunctionAuthor() {
+        try {
+          const payload = {
+            blueprint_path: document.getElementById("controlBlueprintPath").value.trim(),
+            graph_kind: document.getElementById("controlGraphKind").value,
+            graph_name: document.getElementById("controlGraphName").value.trim(),
+            compile_after: document.getElementById("dryRun").value !== "true",
+            dry_run: document.getElementById("dryRun").value === "true",
+          };
+          const res = await api("/api/blueprint-function-author", "POST", payload);
+          setPanelResult(controlStatus, controlOutput, res, "Function authoring complete");
+        } catch (err) {
+          setStatus(controlStatus, err.message || String(err), "err");
+        }
+      }
+
+      async function runComponentHierarchy() {
+        try {
+          const payload = {
+            blueprint_path: document.getElementById("controlBlueprintPath").value.trim(),
+            operation: document.getElementById("controlComponentOp").value,
+            component_name: document.getElementById("controlComponentName").value.trim(),
+            class_path: document.getElementById("controlClassPath").value.trim(),
+            property_name: document.getElementById("controlPropertyName").value.trim(),
+            value: parseJsonField("controlValueJson", true),
+            compile_after: document.getElementById("dryRun").value !== "true",
+            dry_run: document.getElementById("dryRun").value === "true",
+          };
+          const res = await api("/api/component-hierarchy", "POST", payload);
+          setPanelResult(controlStatus, controlOutput, res, "Component hierarchy update complete");
+        } catch (err) {
+          setStatus(controlStatus, err.message || String(err), "err");
+        }
+      }
+
+      async function runPinWire() {
+        try {
+          const from = parseNodePin(document.getElementById("controlFromNodePin").value);
+          const to = parseNodePin(document.getElementById("controlToNodePin").value);
+          const payload = {
+            blueprint_path: document.getElementById("controlBlueprintPath").value.trim(),
+            graph_name: document.getElementById("controlGraphTargetName").value.trim(),
+            operation: "connect",
+            from_node_name: from.node_name,
+            from_pin_name: from.pin_name,
+            to_node_name: to.node_name,
+            to_pin_name: to.pin_name,
+            compile_after: document.getElementById("dryRun").value !== "true",
+            dry_run: document.getElementById("dryRun").value === "true",
+          };
+          const res = await api("/api/graph-pin-wire", "POST", payload);
+          setPanelResult(controlStatus, controlOutput, res, "Pin wiring complete");
+        } catch (err) {
+          setStatus(controlStatus, err.message || String(err), "err");
+        }
+      }
+
+      async function runNodeAuthor() {
+        try {
+          const payload = {
+            blueprint_path: document.getElementById("controlBlueprintPath").value.trim(),
+            graph_name: document.getElementById("controlGraphTargetName").value.trim(),
+            operation: document.getElementById("controlNodeOp").value,
+            target_node_name: document.getElementById("controlReplaceTargetNode").value.trim(),
+            function_class_path: document.getElementById("controlFunctionClassPath").value.trim(),
+            function_name: document.getElementById("controlFunctionName").value.trim(),
+            node_position: [0, 0],
+            compile_after: document.getElementById("dryRun").value !== "true",
+            dry_run: document.getElementById("dryRun").value === "true",
+          };
+          const res = await api("/api/node-author", "POST", payload);
+          setPanelResult(controlStatus, controlOutput, res, "Node authoring complete");
+        } catch (err) {
+          setStatus(controlStatus, err.message || String(err), "err");
+        }
+      }
+
+      async function runCompileDiagnostics() {
+        try {
+          const payload = {
+            blueprint_path: document.getElementById("controlBlueprintPath").value.trim(),
+            graph_name: document.getElementById("controlGraphTargetName").value.trim(),
+            include_pins: true,
+            max_nodes: 500,
+            dry_run: document.getElementById("dryRun").value === "true",
+          };
+          const res = await api("/api/compile-diagnostics", "POST", payload);
+          setPanelResult(controlStatus, controlOutput, res, "Compile diagnostics complete");
+        } catch (err) {
+          setStatus(controlStatus, err.message || String(err), "err");
+        }
+      }
+
+      async function runCompileGate() {
+        try {
+          const payload = {
+            blueprint_paths: parseJsonField("gateBlueprintPaths", []),
+            include_pins: true,
+            max_nodes: 800,
+            dry_run: document.getElementById("dryRun").value === "true",
+          };
+          const res = await api("/api/compile-gate-run", "POST", payload);
+          setPanelResult(gateStatus, gateOutput, res, "Compile gate completed");
+        } catch (err) {
+          setStatus(gateStatus, err.message || String(err), "err");
+        }
+      }
+
+      async function loadPatternCatalog() {
+        try {
+          const res = await api("/api/node-pattern-catalog");
+          setPanelResult(gateStatus, gateOutput, res, "Pattern catalog loaded");
+        } catch (err) {
+          setStatus(gateStatus, err.message || String(err), "err");
+        }
+      }
+
+      async function previewPattern() {
+        try {
+          const payload = {
+            pattern_id: document.getElementById("patternId").value,
+            blueprint_path: document.getElementById("controlBlueprintPath").value.trim(),
+            graph_name: document.getElementById("controlGraphTargetName").value.trim() || "EventGraph",
+            message: "Pattern Preview",
+          };
+          const res = await api("/api/node-pattern-preview", "POST", payload);
+          setPanelResult(gateStatus, gateOutput, res, "Pattern preview ready");
+        } catch (err) {
+          setStatus(gateStatus, err.message || String(err), "err");
+        }
+      }
+
+      async function applyPattern() {
+        try {
+          const payload = {
+            pattern_id: document.getElementById("patternId").value,
+            blueprint_path: document.getElementById("controlBlueprintPath").value.trim(),
+            graph_name: document.getElementById("controlGraphTargetName").value.trim() || "EventGraph",
+            message: "Pattern Apply",
+            duration: 0.25,
+            dry_run: document.getElementById("dryRun").value === "true",
+          };
+          const res = await api("/api/node-pattern-apply", "POST", payload);
+          setPanelResult(gateStatus, gateOutput, res, "Pattern apply completed");
+        } catch (err) {
+          setStatus(gateStatus, err.message || String(err), "err");
+        }
+      }
+
+      async function applyRollback() {
+        try {
+          const payload = {
+            rollback_token: document.getElementById("rollbackToken").value.trim(),
+            dry_run: document.getElementById("dryRun").value === "true",
+            stop_on_error: true,
+          };
+          const res = await api("/api/rollback-apply", "POST", payload);
+          setPanelResult(gateStatus, gateOutput, res, "Rollback run completed");
+        } catch (err) {
+          setStatus(gateStatus, err.message || String(err), "err");
+        }
+      }
+
       async function approveAndRetry() {
         if (!lastPendingRequest || !lastPendingRequest.approval_token) {
           addMessage("system", "No pending approval token to use.");
@@ -343,11 +1241,48 @@
       document.getElementById("healthCheck").addEventListener("click", healthCheck);
       document.getElementById("loadInfo").addEventListener("click", loadInfo);
       document.getElementById("loadState").addEventListener("click", loadState);
+      document.getElementById("loadDebugTraces").addEventListener("click", loadDebugTraces);
+      document.getElementById("clearDebugTraces").addEventListener("click", clearDebugTraces);
+      document.getElementById("copyDebugTrace").addEventListener("click", copyLatestTrace);
+      document.getElementById("loadRecipes").addEventListener("click", loadRecipes);
+      document.getElementById("loadReleaseMetrics").addEventListener("click", loadReleaseMetrics);
+      document.getElementById("startPaidSession").addEventListener("click", startPaidSession);
+      document.getElementById("endPaidSession").addEventListener("click", endPaidSession);
+      document.getElementById("connectPaidStream").addEventListener("click", connectPaidStream);
+      document.getElementById("disconnectPaidStream").addEventListener("click", stopPaidStream);
+      document.getElementById("refreshPaidLogs").addEventListener("click", refreshPaidLogs);
+      document.getElementById("downloadPaidLogs").addEventListener("click", downloadPaidLogs);
+      document.getElementById("loadRefactorCatalog").addEventListener("click", loadRefactorCatalog);
+      document.getElementById("previewRefactor").addEventListener("click", previewRefactor);
+      document.getElementById("applyRefactor").addEventListener("click", applyRefactor);
+      document.getElementById("loadRefactorRunDetail").addEventListener("click", loadRefactorRunDetail);
+      document.getElementById("runExplainSelection").addEventListener("click", runExplainSelection);
+      document.getElementById("runExplainScreenshot").addEventListener("click", runExplainScreenshot);
+      document.getElementById("loadProjectDeps").addEventListener("click", loadProjectDeps);
+      document.getElementById("loadPerfHotspots").addEventListener("click", loadPerfHotspots);
+      document.getElementById("runImpactAnalysis").addEventListener("click", runImpactAnalysis);
+      document.getElementById("runUmgGenerate").addEventListener("click", runUmgGenerate);
+      document.getElementById("runWorldGenerate").addEventListener("click", runWorldGenerate);
+      document.getElementById("runPropertyReflect").addEventListener("click", runPropertyReflect);
+      document.getElementById("runFunctionAuthor").addEventListener("click", runFunctionAuthor);
+      document.getElementById("runComponentHierarchy").addEventListener("click", runComponentHierarchy);
+      document.getElementById("runPinWire").addEventListener("click", runPinWire);
+      document.getElementById("runNodeAuthor").addEventListener("click", runNodeAuthor);
+      document.getElementById("runCompileDiagnostics").addEventListener("click", runCompileDiagnostics);
+      document.getElementById("runCompileGate").addEventListener("click", runCompileGate);
+      document.getElementById("loadPatternCatalog").addEventListener("click", loadPatternCatalog);
+      document.getElementById("previewPattern").addEventListener("click", previewPattern);
+      document.getElementById("applyPattern").addEventListener("click", applyPattern);
+      document.getElementById("applyRollback").addEventListener("click", applyRollback);
+      document.getElementById("loadClaimsEvidence").addEventListener("click", loadClaimsEvidence);
       document.getElementById("sendChat").addEventListener("click", () => sendChat());
       document.getElementById("approveAndRetry").addEventListener("click", approveAndRetry);
       document.getElementById("clearChat").addEventListener("click", () => {
         chatLog.innerHTML = "";
         setStatus(runStatus, "Ready");
+      });
+      window.addEventListener("beforeunload", () => {
+        stopPaidStream();
       });
 
       document.getElementById("showAdvanced").addEventListener("change", (e) => {

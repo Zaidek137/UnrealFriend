@@ -1,5 +1,5 @@
 {
-  "unreal_base_url": "http://127.0.0.1:49719/unreal-agent/v1",
+  "unreal_base_url": "http://127.0.0.1:47777/unreal-agent/v1",
   "llm_enabled": false,
   "llm_base_url": "https://api.openai.com/v1",
   "llm_model": "gpt-4.1-mini",
@@ -13,5 +13,11 @@
     "spawn_actor"
   ],
   "min_api_version": "v1",
-  "min_plugin_version": "0.1.0"
+  "min_plugin_version": "0.1.0",
+  "analysis_llm_summary": true,
+  "analysis_require_citations": true,
+  "analysis_disallow_speculative": true,
+  "analysis_store_artifacts": true,
+  "analysis_max_saved_runs": 200,
+  "execution_profile": "balanced"
 }

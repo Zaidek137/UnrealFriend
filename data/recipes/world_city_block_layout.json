@@ -1,0 +1,20 @@
+{
+  "recipe_id": "world_city_block_layout",
+  "version": "1.0.0",
+  "description": "Generate a deterministic modular city block layout for traversal gameplay.",
+  "inputs": [
+    {"name": "rows", "type": "integer", "required": false, "default": 12},
+    {"name": "cols", "type": "integer", "required": false, "default": 12},
+    {"name": "spacing", "type": "number", "required": false, "default": 500.0}
+  ],
+  "steps": [
+    {"id": "create_city_chunk", "action": "create_level_chunk"},
+    {"id": "group_city_chunk", "action": "tag_and_group_actors"}
+  ],
+  "post_validations": [
+    {"kind": "assert_world_state", "required_tags": ["CityChunk"], "min_count": 4}
+  ],
+  "outputs": [
+    "spawned_city_chunk_count"
+  ]
+}
