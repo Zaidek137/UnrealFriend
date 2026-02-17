@@ -890,7 +890,67 @@ FAgentActionResult FModifyBlueprintGraphAction::Execute(const FAgentActionReques
                 return {false, FString::Printf(TEXT("Pin not found: %s"), *PinName), TEXT("")};
             }
 
-            TargetPin->DefaultValue = DefaultValue;
+            const bool bObjectLikePin =
+                TargetPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Object ||
+                TargetPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Class ||
+                TargetPin->PinType.PinCategory == UEdGraphSchema_K2::PC_SoftObject ||
+                TargetPin->PinType.PinCategory == UEdGraphSchema_K2::PC_SoftClass;
+
+            if (bObjectLikePin)
+            {
+                FString ObjectDefaultPath = DefaultValue;
+                ObjectDefaultPath.TrimStartAndEndInline();
+                if (ObjectDefaultPath.StartsWith(TEXT("\"")) && ObjectDefaultPath.EndsWith(TEXT("\"")) && ObjectDefaultPath.Len() >= 2)
+                {
+                    ObjectDefaultPath = ObjectDefaultPath.Mid(1, ObjectDefaultPath.Len() - 2);
+                }
+                const int32 FirstQuote = ObjectDefaultPath.Find(TEXT("'"));
+                const int32 LastQuote = ObjectDefaultPath.Find(TEXT("'"), ESearchCase::IgnoreCase, ESearchDir::FromEnd);
+                if (FirstQuote != INDEX_NONE && LastQuote != INDEX_NONE && LastQuote > FirstQuote)
+                {
+                    ObjectDefaultPath = ObjectDefaultPath.Mid(FirstQuote + 1, LastQuote - FirstQuote - 1);
+                }
+
+                UObject* LoadedObject = StaticLoadObject(UObject::StaticClass(), nullptr, *ObjectDefaultPath);
+                if (LoadedObject == nullptr)
+                {
+                    LoadedObject = LoadObject<UObject>(nullptr, *ObjectDefaultPath);
+                }
+                if (LoadedObject == nullptr)
+                {
+                    return {false, FString::Printf(TEXT("Could not resolve object default for pin %s: %s"), *PinName, *DefaultValue), TEXT("")};
+                }
+
+                TargetPin->DefaultObject = LoadedObject;
+                // Object/class pins should rely on DefaultObject rather than string literals.
+                // Leaving stale DefaultValue strings can produce invalid-pin compile failures.
+                TargetPin->DefaultValue = TEXT("");
+                TargetPin->DefaultTextValue = FText::GetEmpty();
+                ResultPayload->SetBoolField(TEXT("resolved_object_default"), true);
+                ResultPayload->SetStringField(TEXT("resolved_object_path"), LoadedObject->GetPathName());
+            }
+            else
+            {
+                FString NormalizedDefaultValue = DefaultValue;
+                if (const UEnum* EnumType = Cast<UEnum>(TargetPin->PinType.PinSubCategoryObject.Get()))
+                {
+                    FString Candidate = NormalizedDefaultValue;
+                    Candidate.TrimStartAndEndInline();
+                    if (Candidate.IsNumeric())
+                    {
+                        const int64 ParsedValue = FCString::Atoi64(*Candidate);
+                        if (EnumType->IsValidEnumValue(ParsedValue))
+                        {
+                            Candidate = EnumType->GetNameStringByValue(ParsedValue);
+                        }
+                    }
+                    NormalizedDefaultValue = Candidate;
+                }
+
+                TargetPin->DefaultValue = NormalizedDefaultValue;
+                DefaultValue = NormalizedDefaultValue;
+                ResultPayload->SetBoolField(TEXT("resolved_object_default"), false);
+            }
             bMutatedBlueprint = true;
             ResultPayload->SetStringField(TEXT("target"), TEXT("function_pin"));
             ResultPayload->SetStringField(TEXT("class_path"), FunctionClassPath);

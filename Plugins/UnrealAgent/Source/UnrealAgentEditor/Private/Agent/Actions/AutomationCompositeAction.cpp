@@ -63,6 +63,7 @@
 #include "K2Node_ComponentBoundEvent.h"
 #include "K2Node_CustomEvent.h"
 #include "K2Node_IfThenElse.h"
+#include "K2Node_VariableGet.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "LevelSequence.h"
 #include "Materials/Material.h"
@@ -3211,6 +3212,7 @@ static FAgentActionResult HandleBlueprintNodeAuthoring(const FAgentActionRequest
     FString FunctionClassPath;
     FString FunctionName;
     FString CustomEventName;
+    FString VariableName;
     FVector2D NodePosition(0.0f, 0.0f);
     bool bCompileAfter = true;
     if (Payload.IsValid())
@@ -3224,6 +3226,7 @@ static FAgentActionResult HandleBlueprintNodeAuthoring(const FAgentActionRequest
         Payload->TryGetStringField(TEXT("function_class_path"), FunctionClassPath);
         Payload->TryGetStringField(TEXT("function_name"), FunctionName);
         Payload->TryGetStringField(TEXT("custom_event_name"), CustomEventName);
+        Payload->TryGetStringField(TEXT("variable_name"), VariableName);
         Payload->TryGetBoolField(TEXT("compile_after"), bCompileAfter);
         ReadVector2Field(Payload, TEXT("node_position"), NodePosition);
     }
@@ -3231,7 +3234,8 @@ static FAgentActionResult HandleBlueprintNodeAuthoring(const FAgentActionRequest
     const bool bSpawnFunction = Operation.Equals(TEXT("spawn_function_call"), ESearchCase::IgnoreCase) || bReplace;
     const bool bSpawnCustomEvent = Operation.Equals(TEXT("spawn_custom_event"), ESearchCase::IgnoreCase);
     const bool bSpawnBranchNode = Operation.Equals(TEXT("spawn_branch_node"), ESearchCase::IgnoreCase);
-    if (!bSpawnFunction && !bSpawnCustomEvent && !bSpawnBranchNode)
+    const bool bSpawnVariableGet = Operation.Equals(TEXT("spawn_variable_get"), ESearchCase::IgnoreCase);
+    if (!bSpawnFunction && !bSpawnCustomEvent && !bSpawnBranchNode && !bSpawnVariableGet)
     {
         return {false, FString::Printf(TEXT("Unsupported node authoring operation: %s"), *Operation), TEXT(""), TEXT("INVALID_FIELD")};
     }
@@ -3242,6 +3246,10 @@ static FAgentActionResult HandleBlueprintNodeAuthoring(const FAgentActionRequest
     if (bSpawnFunction && (FunctionClassPath.IsEmpty() || FunctionName.IsEmpty()))
     {
         return {false, TEXT("blueprint_node_authoring requires blueprint_path, function_class_path, and function_name."), TEXT(""), TEXT("MISSING_FIELD")};
+    }
+    if (bSpawnVariableGet && VariableName.IsEmpty())
+    {
+        return {false, TEXT("spawn_variable_get requires variable_name."), TEXT(""), TEXT("MISSING_FIELD")};
     }
 
     UBlueprint* Blueprint = ResolveBlueprintAsset(BlueprintPath);
@@ -3299,6 +3307,10 @@ static FAgentActionResult HandleBlueprintNodeAuthoring(const FAgentActionRequest
             const FString EventName = !CustomEventName.IsEmpty() ? CustomEventName : (!NodeName.IsEmpty() ? NodeName : TEXT("AgentCustomEvent"));
             Out->SetStringField(TEXT("custom_event_name"), EventName);
         }
+        if (bSpawnVariableGet)
+        {
+            Out->SetStringField(TEXT("variable_name"), VariableName);
+        }
         return BuildPassThroughResult(TEXT("Dry run node authoring validation succeeded."), Out);
     }
 
@@ -3308,6 +3320,7 @@ static FAgentActionResult HandleBlueprintNodeAuthoring(const FAgentActionRequest
     UK2Node_CallFunction* NewCallNode = nullptr;
     UK2Node_CustomEvent* NewCustomEventNode = nullptr;
     UK2Node_IfThenElse* NewBranchNode = nullptr;
+    UK2Node_VariableGet* NewVariableGetNode = nullptr;
     UEdGraphNode* NewNodeGeneric = nullptr;
     if (bSpawnFunction)
     {
@@ -3379,6 +3392,26 @@ static FAgentActionResult HandleBlueprintNodeAuthoring(const FAgentActionRequest
             NewBranchNode->Rename(*NodeName, nullptr, REN_DontCreateRedirectors);
         }
         NewNodeGeneric = NewBranchNode;
+    }
+    else if (bSpawnVariableGet)
+    {
+        NewVariableGetNode = FEdGraphSchemaAction_K2NewNode::SpawnNode<UK2Node_VariableGet>(
+            Graph,
+            NodePosition,
+            EK2NewNodeFlags::SelectNewNode,
+            [VariableName](UK2Node_VariableGet* NewNode)
+            {
+                NewNode->VariableReference.SetSelfMember(FName(*VariableName));
+            });
+        if (NewVariableGetNode == nullptr)
+        {
+            return {false, TEXT("Failed to spawn variable get node."), TEXT(""), TEXT("EXEC_FAILED")};
+        }
+        if (!NodeName.IsEmpty())
+        {
+            NewVariableGetNode->Rename(*NodeName, nullptr, REN_DontCreateRedirectors);
+        }
+        NewNodeGeneric = NewVariableGetNode;
     }
 
     int32 RewiredLinks = 0;
@@ -3454,6 +3487,10 @@ static FAgentActionResult HandleBlueprintNodeAuthoring(const FAgentActionRequest
     if (bSpawnCustomEvent && NewCustomEventNode != nullptr)
     {
         Out->SetStringField(TEXT("custom_event_name"), NewCustomEventNode->CustomFunctionName.ToString());
+    }
+    if (bSpawnVariableGet)
+    {
+        Out->SetStringField(TEXT("variable_name"), VariableName);
     }
     Out->SetNumberField(TEXT("rewired_links"), RewiredLinks);
     Out->SetNumberField(TEXT("skipped_rewire_links"), SkippedRewireLinks);

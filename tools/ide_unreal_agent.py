@@ -2,6 +2,7 @@
 import argparse
 import json
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -14,7 +15,7 @@ AUTO_BOOTSTRAP = os.environ.get("UNREAL_AGENT_AUTO_BOOTSTRAP", "true").strip().l
 REQUEST_EXTRA_HEADERS: Dict[str, str] = {}
 
 
-def request_json(method: str, url: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def _request_json_raw(method: str, url: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     data = None
     headers = {"Content-Type": "application/json"}
     if REQUEST_EXTRA_HEADERS:
@@ -36,13 +37,48 @@ def request_json(method: str, url: str, payload: Optional[Dict[str, Any]] = None
         return {"success": False, "message": str(exc)}
 
 
+def _extract_base_url(url: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def request_json(method: str, url: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    result = _request_json_raw(method, url, payload)
+    if not AUTO_BOOTSTRAP:
+        return result
+
+    # Avoid recursive bootstrap loops on health/bootstrap endpoints.
+    if url.endswith("/api/agent-bootstrap") or url.endswith("/api/health"):
+        return result
+
+    if str(result.get("error_code", "")).strip() != "AGENT_NOT_READY":
+        return result
+
+    base_url = _extract_base_url(url)
+    if not base_url:
+        return result
+
+    # Retry a few times while the editor/plugin bridge warms up.
+    for _ in range(4):
+        boot = bootstrap_agent_session(base_url, "auto_retry")
+        if bool(boot.get("success", False)):
+            retried = _request_json_raw(method, url, payload)
+            if str(retried.get("error_code", "")).strip() != "AGENT_NOT_READY":
+                return retried
+            result = retried
+        time.sleep(1.25)
+    return result
+
+
 def bootstrap_agent_session(base_url: str, cmd_name: str) -> Dict[str, Any]:
     payload = {
         "client_name": "ide_unreal_agent_cli",
         "client_version": "0.1.0",
         "session_label": cmd_name,
     }
-    result = request_json("POST", f"{base_url}/api/agent-bootstrap", payload)
+    result = _request_json_raw("POST", f"{base_url}/api/agent-bootstrap", payload)
     if not bool(result.get("success", False)):
         return result
     token = str(result.get("bootstrap_token", "")).strip()

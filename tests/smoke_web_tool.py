@@ -1088,6 +1088,10 @@ def run() -> None:
         assert_true(isinstance(control_caps.get("modify_blueprint_graph_operations", []), list), "Expected graph operation list")
         assert_true(isinstance(control_caps.get("blueprint_node_authoring_operations", []), list), "Expected node authoring operation list")
         assert_true(isinstance(control_caps.get("graph_primitive_operations", []), list), "Expected graph primitive operation list")
+        assert_true(
+            "spawn_variable_get" in control_caps.get("blueprint_node_authoring_operations", []),
+            "Expected spawn_variable_get node authoring support",
+        )
         assert_true(isinstance(control_caps.get("workflow_templates", []), list), "Expected workflow template list")
         assert_true(isinstance(control_caps.get("animation_autonomy_templates", []), list), "Expected animation autonomy template list")
         assert_true(isinstance(control_caps.get("ai_autonomy_templates", []), list), "Expected ai autonomy template list")

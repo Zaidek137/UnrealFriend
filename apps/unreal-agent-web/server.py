@@ -6275,6 +6275,7 @@ def get_graph_primitives_catalog() -> Dict[str, Any]:
             "/Script/BlueprintGraph.K2Node_CallFunction",
             "/Script/BlueprintGraph.K2Node_CustomEvent",
             "/Script/BlueprintGraph.K2Node_IfThenElse",
+            "/Script/BlueprintGraph.K2Node_VariableGet",
         ],
     }
 
@@ -6358,6 +6359,19 @@ def execute_graph_primitive_operation(
                 "operation": "spawn_branch_node",
                 "node_name": node_name,
                 "condition_default": bool(operation.get("condition_default", False)),
+                "node_position": operation.get("node_position", [0, 0]),
+                "compile_after": compile_after,
+            }
+        elif node_class_path == "/Script/BlueprintGraph.K2Node_VariableGet":
+            variable_name = str(operation.get("variable_name", "")).strip()
+            if not variable_name:
+                return HTTPStatus.BAD_REQUEST, make_error("MISSING_FIELD", "variable_name is required for K2Node_VariableGet."), None
+            payload = {
+                "blueprint_path": blueprint_path,
+                "graph_name": graph_name,
+                "operation": "spawn_variable_get",
+                "node_name": node_name,
+                "variable_name": variable_name,
                 "node_position": operation.get("node_position", [0, 0]),
                 "compile_after": compile_after,
             }
@@ -7893,6 +7907,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                                 "replace_function_call",
                                 "spawn_custom_event",
                                 "spawn_branch_node",
+                                "spawn_variable_get",
                             ]
                         ),
                         "graph_primitive_operations": get_graph_primitives_catalog().get("supported_operations", []),
